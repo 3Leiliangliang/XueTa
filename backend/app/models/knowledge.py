@@ -37,7 +37,7 @@ class KnowledgeDocument(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     metadata_json: Mapped[dict | None] = mapped_column(JSONB)
 
     knowledge_base: Mapped[KnowledgeBase] = relationship(back_populates="documents")
-    uploaded_file: Mapped["UploadedFile" | None] = relationship(back_populates="knowledge_documents")
+    uploaded_file: Mapped["UploadedFile | None"] = relationship(back_populates="knowledge_documents")
     chunks: Mapped[list["KnowledgeChunk"]] = relationship(back_populates="document")
 
 
@@ -50,7 +50,7 @@ class KnowledgeChunk(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     metadata_json: Mapped[dict | None] = mapped_column(JSONB)
 
     document: Mapped[KnowledgeDocument] = relationship(back_populates="chunks")
-    embedding: Mapped["KnowledgeChunkEmbedding" | None] = relationship(
+    embedding: Mapped["KnowledgeChunkEmbedding | None"] = relationship(
         back_populates="chunk", cascade="all, delete-orphan", uselist=False
     )
 
@@ -64,3 +64,4 @@ class KnowledgeChunkEmbedding(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     embedding: Mapped[list[float]] = mapped_column(Vector(1536))
 
     chunk: Mapped[KnowledgeChunk] = relationship(back_populates="embedding")
+

@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.core.config import settings
-from app.core.database import close_engine, init_db
+from app.core.database import close_engine, init_db, run_migrations
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
 
@@ -13,7 +13,9 @@ from app.core.logging import configure_logging
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     configure_logging()
-    if settings.app_env.lower() in {"development", "local"}:
+    if settings.run_migrations_on_startup:
+        run_migrations()
+    elif settings.app_env.lower() in {"development", "local"} and settings.auto_create_tables:
         init_db()
     yield
     await close_engine()

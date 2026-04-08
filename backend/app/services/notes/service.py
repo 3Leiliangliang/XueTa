@@ -16,6 +16,7 @@ from app.schemas.note import (
     NoteTodoUpdateRequest,
     NoteUpdateRequest,
 )
+from app.services.llm.service import generate_note_summary
 
 
 def _update_notebook_note_count(db: Session, notebook_id: UUID | None) -> None:
@@ -179,7 +180,7 @@ def delete_note_todo(db: Session, todo: NoteTodo) -> None:
     db.commit()
 
 
-def summarize_note(db: Session, note: Note) -> NoteSummary:
+def _build_rule_based_note_summary(note: Note) -> tuple[str, dict]:
     lines = [line.strip() for line in note.content_markdown.splitlines() if line.strip()]
     headline = lines[0] if lines else note.title
     key_points = lines[1:4]
@@ -197,12 +198,24 @@ def summarize_note(db: Session, note: Note) -> NoteSummary:
             "把当前笔记拆成更清晰的小标题结构",
         ]
     }
-    summary_text = "\n".join(summary_parts)
+    return "\n".join(summary_parts), suggestions
+
+
+def summarize_note(db: Session, note: Note) -> NoteSummary:
+    llm_result = generate_note_summary(
+        title=note.title,
+        content_markdown=note.content_markdown,
+    )
+    if llm_result is None:
+        summary_text, suggestions = _build_rule_based_note_summary(note)
+        model_name = "rule-based-draft"
+    else:
+        summary_text, suggestions, model_name = llm_result
 
     note.summary = summary_text
     summary = NoteSummary(
         note_id=note.id,
-        model_name="rule-based-draft",
+        model_name=model_name,
         summary_text=summary_text,
         suggestions_json=suggestions,
     )

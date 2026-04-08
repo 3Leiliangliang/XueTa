@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -15,9 +16,12 @@ from app.schemas.chat import (
     ChatSessionCreateRequest,
     ChatSessionUpdateRequest,
 )
+from app.services.llm.service import generate_chat_reply
+
+STREAM_CHUNK_SIZE = 48
 
 
-def _build_assistant_reply(question: str, subject: str | None = None) -> str:
+def _build_rule_based_reply(question: str, subject: str | None = None) -> str:
     topic = subject or "当前问题"
     clean_question = question.strip()
     return (
@@ -28,6 +32,50 @@ def _build_assistant_reply(question: str, subject: str | None = None) -> str:
         "3. 最后结合一个小例子验证自己是否真的理解。\n\n"
         "当前返回的是后端占位式教学回答，后续接入大模型后会替换为更完整的逐步讲解。"
     )
+
+
+def split_message_for_stream(content: str, chunk_size: int = STREAM_CHUNK_SIZE) -> list[str]:
+    if not content:
+        return []
+
+    tokens = re.findall(r"\S+\s*|\n", content)
+    if not tokens:
+        return [content]
+
+    chunks: list[str] = []
+    current = ""
+
+    def flush() -> None:
+        nonlocal current
+        if current:
+            chunks.append(current)
+            current = ""
+
+    def append_text(token: str) -> None:
+        nonlocal current
+        remaining = token
+        while remaining:
+            available = chunk_size - len(current)
+            if available <= 0:
+                flush()
+                available = chunk_size
+
+            if len(remaining) <= available:
+                current += remaining
+                remaining = ""
+            else:
+                current += remaining[:available]
+                remaining = remaining[available:]
+                flush()
+
+    for token in tokens:
+        if token == "\n":
+            append_text(token)
+            continue
+        append_text(token)
+
+    flush()
+    return chunks
 
 
 def list_sessions(db: Session, user: User) -> list[ChatSession]:
@@ -115,19 +163,27 @@ def create_message_exchange(
     session: ChatSession,
     payload: ChatMessageCreateRequest,
 ) -> tuple[ChatMessage, ChatMessage]:
+    cleaned_content = payload.content.strip()
+    llm_result = generate_chat_reply(cleaned_content, session.subject)
+    if llm_result is None:
+        assistant_content = _build_rule_based_reply(cleaned_content, session.subject)
+        model_name = "rule-based-draft"
+    else:
+        assistant_content, model_name = llm_result
+
     user_message = ChatMessage(
         session_id=session.id,
         role=MessageRole.user,
-        content=payload.content.strip(),
+        content=cleaned_content,
     )
     assistant_message = ChatMessage(
         session_id=session.id,
         role=MessageRole.assistant,
-        content=_build_assistant_reply(payload.content, session.subject),
-        model_name="rule-based-draft",
+        content=assistant_content,
+        model_name=model_name,
     )
     if not session.title:
-        session.title = payload.content.strip()[:50]
+        session.title = cleaned_content[:50]
     session.updated_at = datetime.now(UTC)
 
     db.add_all([user_message, assistant_message, session])

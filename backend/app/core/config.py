@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     cors_origins: list[str] = ["http://localhost:5173"]
 
+    run_migrations_on_startup: bool = False
+    auto_create_tables: bool = True
+
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o"
     openai_embedding_model: str = "text-embedding-3-small"

@@ -28,7 +28,7 @@ class VerificationCode(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    user: Mapped["User" | None] = relationship(back_populates="verification_codes")
+    user: Mapped["User | None"] = relationship(back_populates="verification_codes")
 
 
 class RefreshToken(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -52,3 +52,4 @@ class PasswordResetToken(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     user: Mapped["User"] = relationship(back_populates="password_reset_tokens")
+

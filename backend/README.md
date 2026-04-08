@@ -1,12 +1,17 @@
-﻿# XueTa 后端
+# XueTa 后端
 
-XueTa 后端是 XueTa AI 学习助手的 FastAPI 服务层，整体按照 v2 技术方案设计，核心技术栈包括：
+XueTa 后端是 XueTa AI 学习助手的 FastAPI 服务层，当前以“先打通业务闭环、再接入更强 AI 链路”为主线推进。当前项目已经具备认证、学习规划、笔记、聊天会话、知识库、练习、学习进度、桌面布局和文件上传等核心接口。
 
-- `FastAPI`：提供 HTTP API，后续可扩展 SSE 流式输出
-- `PostgreSQL + pgvector`：同时承载业务数据和向量检索
-- `Redis`：用于缓存和后台任务协调
-- `LlamaIndex`：用于知识库索引与检索流程
-- `Langfuse`：用于可观测性、Prompt 跟踪与效果分析
+## 核心技术栈
+
+- `FastAPI`：提供 HTTP API，已支持首版 SSE 流式输出
+- `SQLAlchemy 2.x`：统一 ORM 与数据访问层
+- `PostgreSQL + pgvector`：业务数据与向量检索的目标存储方案
+- `Redis`：缓存与后台任务协调的预留基础设施
+- `LlamaIndex`：知识库索引 / 检索流程的预留能力
+- `Langfuse`：Prompt、链路与效果观测的预留能力
+
+说明：当前 `pgvector / Redis / LlamaIndex / Langfuse` 已完成依赖与模型层准备，但真正的向量检索、链路观测和异步任务协作仍会在下一阶段继续接入。
 
 ## 项目目标
 
@@ -16,10 +21,10 @@ XueTa 后端是 XueTa AI 学习助手的 FastAPI 服务层，整体按照 v2 技
 - 学习目标、学习任务与进度追踪
 - 笔记、总结与知识沉淀
 - AI 问答与后续 RAG 检索增强
-- 教材/讲义等知识库文档接入
+- 教材 / 讲义等知识库文档接入
 - 练习生成、批改与错题沉淀
 - 学习数据分析与复习计划
-- 个性化学习桌面配置
+- 个性化学习桌面配置与文件流转
 
 ## 目录结构
 
@@ -74,6 +79,13 @@ Copy-Item .env.example .env
 - `SECRET_KEY`
 - `OPENAI_API_KEY`
 
+If `OPENAI_API_KEY` is configured, chat replies and note summaries will prefer a real model and fall back to local rule-based logic on failure.
+
+可选配置：
+
+- `RUN_MIGRATIONS_ON_STARTUP=true`：启动服务时自动执行 Alembic 升级
+- `AUTO_CREATE_TABLES=false`：在已使用迁移的环境中关闭开发模式下的 `create_all()` 兜底
+
 ### 4. 启动服务
 
 ```powershell
@@ -85,30 +97,53 @@ uvicorn app.main:app --reload
 - `http://127.0.0.1:8000/docs`
 - `http://127.0.0.1:8000/redoc`
 
+## Database Migrations
+
+Run the current baseline migration from `backend/` with:
+
+If you want the app to apply migrations automatically on startup, set `RUN_MIGRATIONS_ON_STARTUP=true`.
+
+```powershell
+python -m alembic -c alembic.ini upgrade head
+```
+
+Create a new migration with:
+
+```powershell
+python -m alembic -c alembic.ini revision -m "your_migration_name"
+```
+
+Current baseline revision:
+
+- `alembic/versions/20260407_0001_baseline_schema.py`
+
 ## 当前状态
 
 目前后端已经具备以下能力：
 
 - FastAPI 应用入口、统一路由注册和 CORS 中间件
-- 开发环境下基于 SQLAlchemy Metadata 的自动建表
+- 开发环境下保留基于 SQLAlchemy Metadata 的自动建表能力（便于本地快速启动）
 - 基于 JWT 的鉴权流程与 Bearer Token 保护接口
 - 注册、密码登录、验证码登录、刷新 Token、登出、忘记密码、重置密码
 - 当前用户查询与用户资料更新
-- 学习规划模块的真实 CRUD：目标与任务
+- 学习规划模块的真实 CRUD：目标、任务、状态更新与计划快照生成
 - 笔记模块的真实 CRUD：笔记本、笔记、待办、总结
-- 问答模块的基础会话持久化：会话、消息、反馈
-- 基础学习计划快照生成接口
-- 首版 SQLAlchemy 数据模型
-- 健康检查测试与数据库结构文档
+- 问答模块的真实基础能力：会话、消息、反馈与首版 SSE 流式输出
+- 桌面布局模块的真实 CRUD：按名称获取 / 保存布局、布局列表、详情、更新、删除
+- 文件模块的真实 CRUD：上传、列表、详情、下载、删除
+- 学习进度模块的真实能力：学习概览、学习记录、知识掌握度、复习计划
+- 练习模块的首版业务闭环：题集生成、题集详情、提交作答、评分结果、错题沉淀
+- 知识库模块的首版业务闭环：知识库 CRUD、文档 CRUD、自动切块、关键词检索
+- Alembic 已初始化，并提供首版 baseline 迁移脚本
+- 首版 SQLAlchemy 数据模型、健康检查测试与数据库结构文档
 
-以下模块目前仍是骨架，下一阶段继续实现：
+以下部分仍在下一阶段继续增强：
 
-- 问答模块的 SSE 流式输出
-- 知识库文档入库与检索
-- 练习生成与自动批改
-- 学习进度分析与复习计划
-- 桌面个性化与文件流转
-- Alembic 迁移脚本
+- 聊天流式回答继续接入真实大模型与检索链路
+- 聊天与笔记总结接入真实大模型
+- 知识库接入更完整的文档解析、Embedding 与 pgvector 检索
+- 练习生成与批改进一步接入更强的 AI 生成 / 评估链路
+- Redis 任务调度、Langfuse 观测链路、LlamaIndex 工作流正式接入
 
 ## 已可用接口
 
@@ -167,7 +202,62 @@ uvicorn app.main:app --reload
 - `DELETE /api/v1/chat/sessions/{session_id}`
 - `GET /api/v1/chat/sessions/{session_id}/messages`
 - `POST /api/v1/chat/sessions/{session_id}/messages`
+- `POST /api/v1/chat/sessions/{session_id}/messages/stream`
 - `POST /api/v1/chat/messages/{message_id}/feedback`
+
+### 知识库模块
+
+- `GET /api/v1/kb/bases`
+- `POST /api/v1/kb/bases`
+- `GET /api/v1/kb/bases/{base_id}`
+- `PATCH /api/v1/kb/bases/{base_id}`
+- `DELETE /api/v1/kb/bases/{base_id}`
+- `GET /api/v1/kb/documents`
+- `POST /api/v1/kb/documents`
+- `GET /api/v1/kb/documents/{document_id}`
+- `PATCH /api/v1/kb/documents/{document_id}`
+- `DELETE /api/v1/kb/documents/{document_id}`
+- `GET /api/v1/kb/documents/{document_id}/chunks`
+- `POST /api/v1/kb/retrieve`
+
+### 练习模块
+
+- `POST /api/v1/practice/generate`
+- `GET /api/v1/practice/sets`
+- `GET /api/v1/practice/sets/{set_id}`
+- `GET /api/v1/practice/sets/{set_id}/attempts`
+- `POST /api/v1/practice/sets/{set_id}/attempts`
+- `GET /api/v1/practice/attempts/{attempt_id}`
+- `GET /api/v1/practice/wrong-questions`
+
+### 学习进度模块
+
+- `GET /api/v1/progress/overview`
+- `GET /api/v1/progress/mastery`
+- `POST /api/v1/progress/mastery`
+- `GET /api/v1/progress/records`
+- `POST /api/v1/progress/records`
+- `GET /api/v1/progress/reviews`
+- `POST /api/v1/progress/reviews`
+- `PATCH /api/v1/progress/reviews/{review_id}`
+
+### 桌面布局模块
+
+- `GET /api/v1/desktop/layout`
+- `PUT /api/v1/desktop/layout`
+- `GET /api/v1/desktop/layouts`
+- `POST /api/v1/desktop/layouts`
+- `GET /api/v1/desktop/layouts/{layout_id}`
+- `PATCH /api/v1/desktop/layouts/{layout_id}`
+- `DELETE /api/v1/desktop/layouts/{layout_id}`
+
+### 文件模块
+
+- `GET /api/v1/files`
+- `POST /api/v1/files/upload`
+- `GET /api/v1/files/{file_id}`
+- `GET /api/v1/files/{file_id}/download`
+- `DELETE /api/v1/files/{file_id}`
 
 ## 模块说明
 
@@ -175,12 +265,12 @@ uvicorn app.main:app --reload
 - `users`：当前用户与资料维护
 - `planner`：学习目标、学习任务、计划快照生成
 - `notes`：笔记本、笔记、总结、待办
-- `chat`：问答会话、消息记录、基础反馈
-- `kb`：知识文档、检索、索引流程
-- `practice`：练习生成、答题提交、批改
-- `progress`：学习记录、掌握度、复习计划
+- `chat`：同步 / 流式问答会话、消息记录、基础反馈
+- `kb`：知识库、文档、切块、关键词检索
+- `practice`：练习生成、作答提交、评分与错题沉淀
+- `progress`：学习记录、掌握度、复习计划与概览统计
 - `desktop`：个性化桌面布局保存
-- `files`：文件上传与元数据入口
+- `files`：文件上传、下载与元数据管理
 
 ## 数据库设计
 
@@ -197,13 +287,19 @@ uvicorn app.main:app --reload
 
 ## 建议的下一步
 
-1. 初始化 Alembic 并生成第一版迁移脚本。
-2. 实现问答模块的 SSE 流式输出。
-3. 接入知识库文档解析、切片与 pgvector 检索。
-4. 实现练习生成、提交与批改。
-5. 补齐学习进度统计与复习计划接口。
-6. 开始把前端 `note` 和 `qa` 页面切换到真实 API。
+1. 接入知识库文档解析、切片 Embedding 与 pgvector 检索。
+2. 将聊天流式回答与练习批改升级到更强的 AI 链路。
+3. 补充 Redis 后台任务、Langfuse 观测与 LlamaIndex 工作流。
+4. 开始把前端 `planning`、`note`、`qa`、`desktop` 等页面逐步切到真实 API。
 
 ## 与前端联调说明
 
-当前前端中的 `planning` 页面已经最适合优先联调，因为后端规划模块 CRUD 已经可用。现在 `note` 页面和 `qa` 页面也已经具备可对接的基础接口，可以开始逐步替换本地 `ref` mock 数据。真正的流式回答与知识检索链路可以放在下一轮继续接入。
+当前后端已经具备较完整的业务骨架，前端适合按以下顺序联调：
+
+1. `auth` + `planner`
+2. `notes` + `chat`
+3. `desktop` + `files`
+4. `practice` + `progress`
+5. `kb`
+
+真正的流式回答、向量检索和更强的 AI 生成链路，可以放在下一轮继续接入。
