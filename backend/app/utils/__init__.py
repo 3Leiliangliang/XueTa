@@ -1,1 +1,1 @@
-﻿"""Utility helpers package."""
+"""Utility helpers package."""

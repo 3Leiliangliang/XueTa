@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import date, datetime
 from uuid import UUID
@@ -93,6 +93,7 @@ class ProgressOverviewStatsResponse(BaseModel):
     total_notes: int
     total_notebooks: int
     total_chat_sessions: int
+    total_chat_questions: int
     total_learning_records: int
     total_study_minutes: int
     average_mastery_score: float | None = None

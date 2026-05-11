@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import date, timedelta
 from uuid import UUID
@@ -7,7 +7,15 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.planner import GoalStatus, StudyGoal, StudyPlanSnapshot, StudyTask, TaskSource
+from app.models.planner import (
+    GoalStatus,
+    StudyGoal,
+    StudyPlanSnapshot,
+    StudyTask,
+    TaskPriority,
+    TaskSource,
+    TaskStatus,
+)
 from app.models.user import User
 from app.schemas.planner import (
     GoalCreateRequest,
@@ -111,6 +119,30 @@ def delete_task(db: Session, task: StudyTask) -> None:
     db.commit()
 
 
+def _build_snapshot_task_payload(
+    task: StudyTask,
+    goal: StudyGoal,
+    *,
+    suggested_order: int,
+    reused_existing: bool,
+) -> dict:
+    return {
+        "task_id": str(task.id),
+        "goal_id": str(goal.id),
+        "goal_title": goal.title,
+        "title": task.title,
+        "description": task.description,
+        "date": task.task_date.isoformat() if task.task_date else None,
+        "duration_minutes": task.duration_minutes,
+        "priority": task.priority.value,
+        "status": task.status.value,
+        "source": task.source.value,
+        "suggested_order": suggested_order,
+        "persisted": True,
+        "reused_existing": reused_existing,
+    }
+
+
 def generate_plan_snapshot(db: Session, user: User, payload: PlannerGenerateRequest) -> StudyPlanSnapshot:
     goals_statement = select(StudyGoal).where(
         StudyGoal.user_id == user.id,
@@ -124,37 +156,114 @@ def generate_plan_snapshot(db: Session, user: User, payload: PlannerGenerateRequ
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No active goals available for plan generation")
 
     today = date.today()
-    generated_days: list[dict] = []
+    end_day = today + timedelta(days=payload.days - 1)
+    goal_ids = [goal.id for goal in goals]
     minutes_per_goal = max(payload.daily_minutes // max(len(goals), 1), 30)
+
+    existing_ai_tasks = list(
+        db.scalars(
+            select(StudyTask).where(
+                StudyTask.user_id == user.id,
+                StudyTask.source == TaskSource.ai,
+                StudyTask.goal_id.in_(goal_ids),
+                StudyTask.task_date >= today,
+                StudyTask.task_date <= end_day,
+            )
+        ).all()
+    )
+
+    reused_slots: dict[tuple[UUID, date], StudyTask] = {}
+    replaced_pending_ai_task_count = 0
+    for existing_task in existing_ai_tasks:
+        slot_key = (existing_task.goal_id, existing_task.task_date)
+        if existing_task.status == TaskStatus.pending:
+            db.delete(existing_task)
+            replaced_pending_ai_task_count += 1
+            continue
+        reused_slots[slot_key] = existing_task
+
+    snapshot = StudyPlanSnapshot(
+        user_id=user.id,
+        title=f"{payload.days}-day study plan",
+        summary=None,
+        plan_json={},
+    )
+    db.add(snapshot)
+    db.flush()
+
+    generated_days: list[dict] = []
+    generated_task_ids: list[str] = []
+    persisted_task_count = 0
+    reused_existing_ai_task_count = 0
 
     for offset in range(payload.days):
         current_day = today + timedelta(days=offset)
         tasks = []
         for index, goal in enumerate(goals, start=1):
-            tasks.append(
-                {
-                    "goal_id": str(goal.id),
-                    "goal_title": goal.title,
-                    "title": f"{goal.title} - Session {offset + 1}",
-                    "duration_minutes": minutes_per_goal,
-                    "priority": "medium",
-                    "source": TaskSource.ai.value,
+            slot_key = (goal.id, current_day)
+            existing_task = reused_slots.get(slot_key)
+            if existing_task is not None:
+                reused_existing_ai_task_count += 1
+                tasks.append(
+                    _build_snapshot_task_payload(
+                        existing_task,
+                        goal,
+                        suggested_order=index,
+                        reused_existing=True,
+                    )
+                )
+                continue
+
+            created_task = StudyTask(
+                user_id=user.id,
+                goal_id=goal.id,
+                title=f"{goal.title} - Session {offset + 1}",
+                description=f"AI 根据学习目标“{goal.title}”生成的第 {offset + 1} 次学习任务。",
+                task_date=current_day,
+                duration_minutes=minutes_per_goal,
+                priority=TaskPriority.medium,
+                status=TaskStatus.pending,
+                source=TaskSource.ai,
+                metadata_json={
+                    "planner_snapshot_id": str(snapshot.id),
+                    "generated_day_index": offset + 1,
                     "suggested_order": index,
-                }
+                    "daily_minutes": payload.daily_minutes,
+                },
+            )
+            db.add(created_task)
+            db.flush()
+
+            generated_task_ids.append(str(created_task.id))
+            persisted_task_count += 1
+            tasks.append(
+                _build_snapshot_task_payload(
+                    created_task,
+                    goal,
+                    suggested_order=index,
+                    reused_existing=False,
+                )
             )
         generated_days.append({"date": current_day.isoformat(), "tasks": tasks})
 
-    snapshot = StudyPlanSnapshot(
-        user_id=user.id,
-        title=f"{payload.days}-day study plan",
-        summary=f"Generated a {payload.days}-day study plan for {len(goals)} active goals.",
-        plan_json={
-            "days": generated_days,
-            "daily_minutes": payload.daily_minutes,
-            "goal_count": len(goals),
-        },
+    snapshot.summary = (
+        f"Generated and persisted a {payload.days}-day study plan for {len(goals)} active goals. "
+        f"Created {persisted_task_count} AI tasks and reused {reused_existing_ai_task_count} existing completed/skipped AI tasks."
     )
-    db.add(snapshot)
+    snapshot.plan_json = {
+        "days": generated_days,
+        "daily_minutes": payload.daily_minutes,
+        "goal_count": len(goals),
+        "date_range": {
+            "start": today.isoformat(),
+            "end": end_day.isoformat(),
+        },
+        "generated_task_ids": generated_task_ids,
+        "persisted_task_count": persisted_task_count,
+        "reused_existing_ai_task_count": reused_existing_ai_task_count,
+        "replaced_pending_ai_task_count": replaced_pending_ai_task_count,
+    }
+
     db.commit()
     db.refresh(snapshot)
     return snapshot

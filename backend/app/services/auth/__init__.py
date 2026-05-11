@@ -1,1 +1,1 @@
-﻿"""Auth services."""
+"""Auth services."""

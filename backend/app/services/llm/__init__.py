@@ -1,4 +1,4 @@
-﻿"""LLM provider services."""
+"""LLM provider services."""
 
 from app.services.llm.service import (
     generate_chat_reply,

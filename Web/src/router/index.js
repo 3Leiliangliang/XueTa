@@ -3,6 +3,10 @@ import Home from '../views/home.vue'
 import Translate from '../views/translate.vue'
 import Qa from '../views/qa.vue'
 import Note from '../views/note.vue'
+import KnowledgeBase from '../views/kb.vue'
+import Practice from '../views/practice.vue'
+import Progress from '../views/progress.vue'
+import Profile from '../views/profile.vue'
 import Desktop from '../views/desktop.vue'
 import Planning from '../views/planning.vue'
 import Login from '../views/auth/login.vue'
@@ -36,13 +40,49 @@ const router = createRouter({
       component: Qa,
       meta: {
         showHeader: true,
-        showFooter: true
+        showFooter: false
       }
     },
     {
       path: '/note',
       name: 'Note',
       component: Note,
+      meta: {
+        showHeader: true,
+        showFooter: true
+      }
+    },
+    {
+      path: '/kb',
+      name: 'KnowledgeBase',
+      component: KnowledgeBase,
+      meta: {
+        showHeader: true,
+        showFooter: true
+      }
+    },
+    {
+      path: '/practice',
+      name: 'Practice',
+      component: Practice,
+      meta: {
+        showHeader: true,
+        showFooter: true
+      }
+    },
+    {
+      path: '/progress',
+      name: 'Progress',
+      component: Progress,
+      meta: {
+        showHeader: true,
+        showFooter: true
+      }
+    },
+    {
+      path: '/profile',
+      name: 'Profile',
+      component: Profile,
       meta: {
         showHeader: true,
         showFooter: true

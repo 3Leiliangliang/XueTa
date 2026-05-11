@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import LoginMascotScene from '@/components/auth/LoginMascotScene.vue'
@@ -44,6 +44,35 @@ const handleSubmit = async () => {
     return
   }
 
+  const trimmedUsername = username.value.trim()
+  const trimmedEmail = email.value.trim()
+  const trimmedPhone = phone.value.trim()
+
+  if (trimmedUsername.length < 3) {
+    errorMessage.value = '用户名至少需要 3 个字符。'
+    return
+  }
+  if (!trimmedEmail && !trimmedPhone) {
+    errorMessage.value = '邮箱和手机号至少填写一个。'
+    return
+  }
+  if (trimmedPhone && trimmedPhone.length < 6) {
+    errorMessage.value = '手机号长度至少为 6 位。'
+    return
+  }
+  if (password.value.length < 8) {
+    errorMessage.value = '密码长度至少为 8 位。'
+    return
+  }
+  if (confirmPassword.value.length < 8) {
+    errorMessage.value = '确认密码长度至少为 8 位。'
+    return
+  }
+  if (password.value !== confirmPassword.value) {
+    errorMessage.value = '两次输入的密码不一致。'
+    return
+  }
+
   isLoading.value = true
   errorMessage.value = ''
   statusMessage.value = ''
@@ -53,9 +82,9 @@ const handleSubmit = async () => {
       method: 'POST',
       auth: false,
       body: {
-        username: username.value.trim(),
-        email: email.value.trim() || null,
-        phone: phone.value.trim() || null,
+        username: trimmedUsername,
+        email: trimmedEmail || null,
+        phone: trimmedPhone || null,
         password: password.value,
         confirm_password: confirmPassword.value
       }

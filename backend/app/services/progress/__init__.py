@@ -1,1 +1,1 @@
-﻿"""Progress services."""
+"""Progress services."""

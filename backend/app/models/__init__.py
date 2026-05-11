@@ -1,4 +1,4 @@
-﻿from app.models.auth import PasswordResetToken, RefreshToken, VerificationCode
+from app.models.auth import PasswordResetToken, RefreshToken, VerificationCode
 from app.models.base import Base
 from app.models.chat import ChatFeedback, ChatMessage, ChatSession
 from app.models.desktop import DesktopLayout, SavedItem

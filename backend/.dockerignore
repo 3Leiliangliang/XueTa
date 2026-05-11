@@ -1,0 +1,15 @@
+.git
+.gitignore
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+pytest-cache-files-*
+.mypy_cache
+.ruff_cache
+.env
+.env.*
+!.env.docker
+!.env.docker.example
+storage/*
+!storage/.gitkeep

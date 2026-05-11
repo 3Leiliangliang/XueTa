@@ -1,1 +1,1 @@
-﻿"""Notes services."""
+"""Notes services."""

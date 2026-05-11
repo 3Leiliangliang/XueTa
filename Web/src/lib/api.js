@@ -1,7 +1,15 @@
-import { clearAuthSession, getAccessToken } from './auth'
+import {
+  clearAuthSession,
+  getAccessToken,
+  getRefreshToken,
+  saveAuthSession
+} from './auth'
 
 const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api/v1'
 export const API_BASE_URL = rawBaseUrl.replace(/\/+$/, '')
+const REFRESH_PATH = '/auth/refresh'
+
+let refreshPromise = null
 
 export class ApiError extends Error {
   constructor(message, { status = 500, payload = null } = {}) {
@@ -13,11 +21,17 @@ export class ApiError extends Error {
 }
 
 const getErrorMessage = (payload, status) => {
-  if (!payload) return `请求失败（${status}）`
+  if (!payload) return `Request failed (${status})`
   if (typeof payload === 'string') return payload
   if (typeof payload.detail === 'string') return payload.detail
+  if (Array.isArray(payload.detail)) {
+    const firstIssue = payload.detail[0]
+    if (typeof firstIssue === 'string') return firstIssue
+    if (firstIssue && typeof firstIssue.msg === 'string') return firstIssue.msg
+    return `Request failed (${status})`
+  }
   if (typeof payload.message === 'string') return payload.message
-  return `请求失败（${status}）`
+  return `Request failed (${status})`
 }
 
 const parseJsonSafely = async (response) => {
@@ -33,52 +47,87 @@ const parseJsonSafely = async (response) => {
   }
 }
 
-export const apiRequest = async (
-  path,
-  {
-    method = 'GET',
-    body,
-    headers = {},
-    auth = true,
-    signal
-  } = {}
-) => {
+const normalizePath = (path) => (path.startsWith('/') ? path : `/${path}`)
+const buildUrl = (path) => `${API_BASE_URL}${normalizePath(path)}`
+
+const getAuthTokenOrThrow = (auth) => {
   const token = getAccessToken()
   if (auth && !token) {
-    throw new ApiError('请先登录后再使用该功能。', { status: 401 })
+    throw new ApiError('Please sign in before using this feature.', { status: 401 })
   }
+  return token
+}
 
-  const requestHeaders = new Headers(headers)
+const buildRequestHeaders = ({
+  headers,
+  auth,
+  token,
+  body,
+  acceptSse = false
+}) => {
+  const requestHeaders = new Headers(headers || {})
+  if (acceptSse) {
+    requestHeaders.set('Accept', 'text/event-stream')
+  }
   if (auth && token) {
     requestHeaders.set('Authorization', `Bearer ${token}`)
   }
-
-  let requestBody = body
   if (body && !(body instanceof FormData)) {
     requestHeaders.set('Content-Type', 'application/json')
-    requestBody = JSON.stringify(body)
+  }
+  return requestHeaders
+}
+
+const buildRequestBody = (body) => {
+  if (body == null) return undefined
+  if (body instanceof FormData) return body
+  return JSON.stringify(body)
+}
+
+const refreshAccessToken = async () => {
+  const refreshToken = getRefreshToken()
+  if (!refreshToken) {
+    clearAuthSession()
+    throw new ApiError('Login session expired, please sign in again.', { status: 401 })
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    headers: requestHeaders,
-    body: requestBody,
-    signal
-  })
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      const response = await fetch(buildUrl(REFRESH_PATH), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken })
+      })
 
-  const payload = await parseJsonSafely(response)
-  if (!response.ok) {
-    if (response.status === 401) {
-      clearAuthSession()
-    }
-    throw new ApiError(getErrorMessage(payload, response.status), {
-      status: response.status,
-      payload
+      const payload = await parseJsonSafely(response)
+      if (!response.ok) {
+        clearAuthSession()
+        throw new ApiError(getErrorMessage(payload, response.status), {
+          status: response.status,
+          payload
+        })
+      }
+
+      saveAuthSession({
+        accessToken: payload.access_token,
+        refreshToken: payload.refresh_token,
+        user: payload.user
+      })
+
+      return payload.access_token
+    })().finally(() => {
+      refreshPromise = null
     })
   }
 
-  return payload
+  return refreshPromise
 }
+
+const shouldRefreshAndRetry = (response, { auth, path, attempt }) =>
+  auth &&
+  attempt === 0 &&
+  response.status === 401 &&
+  normalizePath(path) !== REFRESH_PATH
 
 const parseSseBlock = (block) => {
   const lines = block.split('\n')
@@ -105,41 +154,7 @@ const parseSseBlock = (block) => {
   }
 }
 
-export const streamSseRequest = async (
-  path,
-  { method = 'POST', body, headers = {}, auth = true, onEvent } = {}
-) => {
-  const token = getAccessToken()
-  if (auth && !token) {
-    throw new ApiError('请先登录后再使用该功能。', { status: 401 })
-  }
-
-  const requestHeaders = new Headers(headers)
-  requestHeaders.set('Accept', 'text/event-stream')
-  if (auth && token) {
-    requestHeaders.set('Authorization', `Bearer ${token}`)
-  }
-  if (body && !(body instanceof FormData)) {
-    requestHeaders.set('Content-Type', 'application/json')
-  }
-
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    headers: requestHeaders,
-    body: body instanceof FormData ? body : JSON.stringify(body)
-  })
-
-  if (!response.ok || !response.body) {
-    const payload = await parseJsonSafely(response)
-    if (response.status === 401) {
-      clearAuthSession()
-    }
-    throw new ApiError(getErrorMessage(payload, response.status), {
-      status: response.status,
-      payload
-    })
-  }
-
+const consumeSseStream = async (response, onEvent) => {
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -163,4 +178,133 @@ export const streamSseRequest = async (
       break
     }
   }
+}
+
+export const apiRequest = async (
+  path,
+  {
+    method = 'GET',
+    body,
+    headers = {},
+    auth = true,
+    signal
+  } = {}
+) => {
+  let token = getAuthTokenOrThrow(auth)
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await fetch(buildUrl(path), {
+      method,
+      headers: buildRequestHeaders({ headers, auth, token, body }),
+      body: buildRequestBody(body),
+      signal
+    })
+
+    const payload = await parseJsonSafely(response)
+    if (response.ok) {
+      return payload
+    }
+
+    if (shouldRefreshAndRetry(response, { auth, path, attempt })) {
+      token = await refreshAccessToken()
+      continue
+    }
+
+    if (response.status === 401) {
+      clearAuthSession()
+    }
+
+    throw new ApiError(getErrorMessage(payload, response.status), {
+      status: response.status,
+      payload
+    })
+  }
+
+  throw new ApiError('Request failed after retry.', { status: 401 })
+}
+
+export const apiRawRequest = async (
+  path,
+  {
+    method = 'GET',
+    body,
+    headers = {},
+    auth = true,
+    signal
+  } = {}
+) => {
+  let token = getAuthTokenOrThrow(auth)
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await fetch(buildUrl(path), {
+      method,
+      headers: buildRequestHeaders({ headers, auth, token, body }),
+      body: buildRequestBody(body),
+      signal
+    })
+
+    if (response.ok) {
+      return response
+    }
+
+    const payload = await parseJsonSafely(response)
+    if (shouldRefreshAndRetry(response, { auth, path, attempt })) {
+      token = await refreshAccessToken()
+      continue
+    }
+
+    if (response.status === 401) {
+      clearAuthSession()
+    }
+
+    throw new ApiError(getErrorMessage(payload, response.status), {
+      status: response.status,
+      payload
+    })
+  }
+
+  throw new ApiError('Request failed after retry.', { status: 401 })
+}
+
+export const streamSseRequest = async (
+  path,
+  { method = 'POST', body, headers = {}, auth = true, onEvent } = {}
+) => {
+  let token = getAuthTokenOrThrow(auth)
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await fetch(buildUrl(path), {
+      method,
+      headers: buildRequestHeaders({
+        headers,
+        auth,
+        token,
+        body,
+        acceptSse: true
+      }),
+      body: buildRequestBody(body)
+    })
+
+    if (response.ok && response.body) {
+      await consumeSseStream(response, onEvent)
+      return
+    }
+
+    const payload = await parseJsonSafely(response)
+    if (shouldRefreshAndRetry(response, { auth, path, attempt })) {
+      token = await refreshAccessToken()
+      continue
+    }
+
+    if (response.status === 401) {
+      clearAuthSession()
+    }
+
+    throw new ApiError(getErrorMessage(payload, response.status), {
+      status: response.status,
+      payload
+    })
+  }
+
+  throw new ApiError('Streaming request failed after retry.', { status: 401 })
 }

@@ -1,4 +1,4 @@
-﻿from app.services.chat_service import split_message_for_stream
+from app.services.chat_service import split_message_for_stream
 
 
 def test_split_message_for_stream_splits_chinese_text() -> None:

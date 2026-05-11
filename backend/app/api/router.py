@@ -1,4 +1,4 @@
-﻿from fastapi import APIRouter
+from fastapi import APIRouter
 
 from app.api.v1 import (
     auth,
@@ -11,6 +11,7 @@ from app.api.v1 import (
     planner,
     practice,
     progress,
+    tasks,
     translate,
     users,
 )
@@ -29,3 +30,4 @@ api_router.include_router(practice.router, prefix='/practice', tags=['practice']
 api_router.include_router(progress.router, prefix='/progress', tags=['progress'])
 api_router.include_router(desktop.router, prefix='/desktop', tags=['desktop'])
 api_router.include_router(files.router, prefix='/files', tags=['files'])
+api_router.include_router(tasks.router, prefix='/tasks', tags=['tasks'])

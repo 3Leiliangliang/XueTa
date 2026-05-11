@@ -1,4 +1,4 @@
-﻿from app.services.llm import service as llm_service
+from app.services.llm import service as llm_service
 
 
 def test_generate_chat_reply_returns_none_when_completion_unavailable(monkeypatch) -> None:
@@ -51,3 +51,29 @@ def test_generate_note_summary_fills_default_suggestions(monkeypatch) -> None:
     assert summary_text == "这份笔记重点在函数单调性。"
     assert len(suggestions["suggestions"]) == 3
     assert model_name == "gpt-test"
+
+
+
+def test_generate_embeddings_returns_hashing_fallback_vectors(monkeypatch) -> None:
+    monkeypatch.setattr(llm_service, '_create_embeddings', lambda texts: None)
+
+    vectors, model_name = llm_service.generate_embeddings(['limit theorem', 'derivative rule'])
+
+    assert model_name.startswith('hashing-fallback-')
+    assert len(vectors) == 2
+    assert len(vectors[0]) == llm_service.EMBEDDING_DIMENSIONS
+    assert vectors[0] != vectors[1]
+
+
+
+def test_generate_embedding_reuses_batch_embedding_logic(monkeypatch) -> None:
+    monkeypatch.setattr(
+        llm_service,
+        'generate_embeddings',
+        lambda texts: ([[0.5, 0.5] + [0.0] * (llm_service.EMBEDDING_DIMENSIONS - 2)], 'test-embed'),
+    )
+
+    vector, model_name = llm_service.generate_embedding('limit')
+
+    assert model_name == 'test-embed'
+    assert vector[:2] == [0.5, 0.5]

@@ -1,0 +1,95 @@
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-m.daocloud.io/docker.io/pgvector/pgvector:pg16}
+    container_name: xueta-postgres
+    environment:
+      POSTGRES_DB: xueta
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d xueta"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  redis:
+    image: ${REDIS_IMAGE:-m.daocloud.io/docker.io/redis:7-alpine}
+    container_name: xueta-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        PYTHON_IMAGE: ${BACKEND_PYTHON_IMAGE:-m.daocloud.io/docker.io/python:3.11-slim}
+    container_name: xueta-backend
+    env_file:
+      - ./backend/.env.docker
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        PYTHON_IMAGE: ${BACKEND_PYTHON_IMAGE:-m.daocloud.io/docker.io/python:3.11-slim}
+    container_name: xueta-worker
+    env_file:
+      - ./backend/.env.docker
+    volumes:
+      - ./backend:/app
+    command: python -m app.tasks.worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./Web
+      dockerfile: Dockerfile.dev
+      args:
+        NODE_IMAGE: ${WEB_NODE_IMAGE:-m.daocloud.io/docker.io/node:20-bullseye}
+    container_name: xueta-web
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000/api/v1
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./Web:/app
+      - web_node_modules:/app/node_modules
+    ports:
+      - "5173:5173"
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+    depends_on:
+      backend:
+        condition: service_started
+
+volumes:
+  postgres_data:
+  redis_data:
+  web_node_modules:

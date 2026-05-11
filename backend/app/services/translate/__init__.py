@@ -1,1 +1,1 @@
-﻿"""Translation services."""
+"""Translation services."""

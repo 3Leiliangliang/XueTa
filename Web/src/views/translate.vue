@@ -10,8 +10,8 @@ import IconDownload from '@/components/icons/IconDownload.vue'
 import IconSparkles from '@/components/icons/IconSparkles.vue'
 import IconVolume from '@/components/icons/IconVolume.vue'
 import IconUpload from '@/components/icons/IconUpload.vue'
-import { apiRequest, API_BASE_URL } from '@/lib/api'
-import { hasAccessToken, getAccessToken } from '@/lib/auth'
+import { apiRawRequest, apiRequest } from '@/lib/api'
+import { hasAccessToken } from '@/lib/auth'
 import {
   buildTranslateNoteMarkdown,
   buildTranslateNoteTitle,
@@ -165,20 +165,11 @@ const handleFileChange = async (event) => {
 }
 
 const fetchAuthorizedFileBlob = async (fileId) => {
-  const token = getAccessToken()
-  if (!token) {
+  if (!hasAccessToken()) {
     throw new Error('请先登录后再下载文件。')
   }
 
-  const response = await fetch(`${API_BASE_URL}/files/${fileId}/download`, {
-    headers: {
-      Authorization: `Bearer ${token}`
-    }
-  })
-  if (!response.ok) {
-    throw new Error(`下载失败（${response.status}）`)
-  }
-
+  const response = await apiRawRequest(`/files/${fileId}/download`)
   return response.blob()
 }
 

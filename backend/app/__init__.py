@@ -1,1 +1,1 @@
-﻿"""XueTa backend application package."""
+"""XueTa backend application package."""

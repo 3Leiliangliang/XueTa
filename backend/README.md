@@ -79,10 +79,13 @@ Copy-Item .env.example .env
 - `SECRET_KEY`
 - `OPENAI_API_KEY`
 
-If `OPENAI_API_KEY` is configured, chat replies and note summaries will prefer a real model and fall back to local rule-based logic on failure.
+If `OPENAI_API_KEY` is configured, chat replies and note summaries will prefer a real model.
+When chat requests fail with a configured key, the API now returns a clear model-configuration error (instead of silently returning placeholder text).
 
 可选配置：
 
+- `OPENAI_BASE_URL`：OpenAI 兼容网关地址（例如第三方兼容服务）
+- `OPENAI_TIMEOUT_SECONDS`：模型请求超时时间（秒）
 - `RUN_MIGRATIONS_ON_STARTUP=true`：启动服务时自动执行 Alembic 升级
 - `AUTO_CREATE_TABLES=false`：在已使用迁移的环境中关闭开发模式下的 `create_all()` 兜底
 
@@ -139,8 +142,7 @@ Current baseline revision:
 
 以下部分仍在下一阶段继续增强：
 
-- 聊天流式回答继续接入真实大模型与检索链路
-- 聊天与笔记总结接入真实大模型
+- 聊天与笔记总结继续增强模型质量与提示词效果
 - 知识库接入更完整的文档解析、Embedding 与 pgvector 检索
 - 练习生成与批改进一步接入更强的 AI 生成 / 评估链路
 - Redis 任务调度、Langfuse 观测链路、LlamaIndex 工作流正式接入

@@ -1,4 +1,4 @@
-<script setup>
+ <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 
 const isVisible = ref(false)

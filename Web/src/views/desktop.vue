@@ -278,6 +278,90 @@ const applyLayout = (widgets) => {
   desktopWidgets.value = widgets.map(hydrateDesktopItem)
 }
 
+const getNearestGoalWithDeadline = (goals) => {
+  const nowDate = new Date(now.value)
+  nowDate.setHours(0, 0, 0, 0)
+
+  return (goals || [])
+    .filter((goal) => goal?.deadline)
+    .map((goal) => ({
+      ...goal,
+      parsedDeadline: new Date(goal.deadline)
+    }))
+    .filter((goal) => !Number.isNaN(goal.parsedDeadline.getTime()))
+    .sort((a, b) => a.parsedDeadline.getTime() - b.parsedDeadline.getTime())
+    .find((goal) => {
+      const deadline = new Date(goal.parsedDeadline)
+      deadline.setHours(0, 0, 0, 0)
+      return deadline.getTime() >= nowDate.getTime()
+    })
+}
+
+const enrichWidgetsWithLiveData = async (widgets) => {
+  if (!Array.isArray(widgets) || !widgets.length || !hasAccessToken()) return widgets
+
+  try {
+    const [goals, notes, overview] = await Promise.all([
+      apiRequest('/planner/goals'),
+      apiRequest('/notes'),
+      apiRequest('/progress/overview')
+    ])
+
+    const nearestGoal = getNearestGoalWithDeadline(goals)
+    const recentNotes = (notes || [])
+      .slice(0, 3)
+      .map((item) => item?.title)
+      .filter(Boolean)
+    const stats = overview?.stats || {}
+
+    return widgets.map((item) => {
+      if (item?.type !== 'widget') return item
+
+      if (item.widgetType === 'countdown' && nearestGoal?.deadline) {
+        return {
+          ...item,
+          data: {
+            ...item.data,
+            title: '目标倒计时',
+            targetDate: nearestGoal.deadline,
+            subtitle: nearestGoal.title || item.data?.subtitle || '最近学习目标'
+          }
+        }
+      }
+
+      if (item.widgetType === 'quickNotes') {
+        return {
+          ...item,
+          data: {
+            ...item.data,
+            title: '最近笔记',
+            items: recentNotes.length ? recentNotes : ['暂无笔记，去笔记页记录吧']
+          }
+        }
+      }
+
+      if (item.widgetType === 'weather') {
+        return {
+          ...item,
+          name: '学习概览',
+          data: {
+            ...item.data,
+            city: '学习时长',
+            temperature: String(stats.total_study_minutes || 0),
+            unit: ' min',
+            condition: '待复习',
+            description: `${stats.due_review_count || 0} 项`
+          }
+        }
+      }
+
+      return item
+    })
+  } catch {
+    return widgets
+  }
+}
+
 const loadDesktopLayout = async () => {
   isHydrating.value = true
   errorMessage.value = ''
@@ -286,14 +370,35 @@ const loadDesktopLayout = async () => {
 
   try {
     if (hasAccessToken()) {
-      const layout = await apiRequest(`/desktop/layout?name=${encodeURIComponent(LAYOUT_NAME)}`)
-      const widgets = layout?.layout_json?.widgets
-      if (Array.isArray(widgets) && widgets.length) {
-        applyLayout(widgets)
-        statusMessage.value = '已加载云端桌面布局。'
-      } else {
-        applyLayout(defaultWidgets())
-        statusMessage.value = '云端布局为空，已载入默认桌面。'
+      const applyAndPersistDefaultLayout = async (statusText) => {
+        const enrichedWidgets = await enrichWidgetsWithLiveData(defaultWidgets())
+        applyLayout(enrichedWidgets)
+        await apiRequest('/desktop/layout', {
+          method: 'PUT',
+          body: {
+            name: LAYOUT_NAME,
+            layout_json: { widgets: enrichedWidgets.map(serializeDesktopItem) }
+          }
+        })
+        statusMessage.value = statusText
+      }
+
+      try {
+        const layout = await apiRequest(`/desktop/layout?name=${encodeURIComponent(LAYOUT_NAME)}`)
+        const widgets = layout?.layout_json?.widgets
+        if (Array.isArray(widgets) && widgets.length) {
+          const enrichedWidgets = await enrichWidgetsWithLiveData(widgets)
+          applyLayout(enrichedWidgets)
+          statusMessage.value = '已加载云端桌面布局。'
+        } else {
+          await applyAndPersistDefaultLayout('云端布局为空，已初始化默认桌面。')
+        }
+      } catch (error) {
+        if (error?.status === 404) {
+          await applyAndPersistDefaultLayout('首次进入已创建默认桌面布局。')
+        } else {
+          throw error
+        }
       }
     } else {
       const localLayout = getLocalLayout()
@@ -668,10 +773,10 @@ onUnmounted(() => {
                   <div class="flex h-full items-center justify-between px-5 text-white">
                     <div>
                       <p class="text-sm font-medium text-white/85">{{ item.data.city }}</p>
-                      <p class="mt-1 text-5xl font-semibold leading-none">{{ item.data.temperature }}C</p>
+                      <p class="mt-1 text-5xl font-semibold leading-none">{{ item.data.temperature }}{{ item.data.unit || 'C' }}</p>
                     </div>
                     <div class="text-right">
-                      <div class="text-2xl font-semibold tracking-wide">Rain</div>
+                      <div class="text-2xl font-semibold tracking-wide">{{ item.data.condition || 'Rain' }}</div>
                       <p class="mt-1 text-sm text-white/82">{{ item.data.description }}</p>
                     </div>
                   </div>

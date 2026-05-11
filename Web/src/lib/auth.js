@@ -1,8 +1,13 @@
 const ACCESS_TOKEN_KEY = 'xueta_access_token'
 const REFRESH_TOKEN_KEY = 'xueta_refresh_token'
 const USER_KEY = 'xueta_current_user'
+export const AUTH_SESSION_EVENT = 'xueta-auth-session-change'
 
 const canUseStorage = () => typeof window !== 'undefined' && !!window.localStorage
+const emitAuthSessionChange = () => {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent(AUTH_SESSION_EVENT))
+}
 
 export const getAccessToken = () => {
   if (!canUseStorage()) return ''
@@ -34,6 +39,7 @@ export const saveAuthSession = ({ accessToken, refreshToken, user }) => {
   window.localStorage.setItem(ACCESS_TOKEN_KEY, accessToken)
   window.localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken)
   window.localStorage.setItem(USER_KEY, JSON.stringify(user))
+  emitAuthSessionChange()
 }
 
 export const clearAuthSession = () => {
@@ -42,4 +48,5 @@ export const clearAuthSession = () => {
   window.localStorage.removeItem(ACCESS_TOKEN_KEY)
   window.localStorage.removeItem(REFRESH_TOKEN_KEY)
   window.localStorage.removeItem(USER_KEY)
+  emitAuthSessionChange()
 }

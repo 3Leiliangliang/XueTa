@@ -96,7 +96,7 @@ import Start from '@/components/main/start.vue'
                   <p class="text-slate-600 mb-4">
                     AI自动整理笔记格式，生成思维导图和知识图谱，提取关键知识点，帮助您系统化学习内容，提高记忆效率。
                   </p>
-                  <router-link to="/notes" class="inline-flex items-center gap-2  border rounded  px-2">
+                  <router-link to="/note" class="inline-flex items-center gap-2  border rounded  px-2">
                     <Button variant="outline" size="sm" >
                       了解更多 
                     </Button>

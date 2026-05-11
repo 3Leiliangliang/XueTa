@@ -285,22 +285,19 @@ const generatePlan = async () => {
         daily_minutes: 120
       }
     })
+    await loadPlannerData()
 
-    const generatedTasks = snapshot.plan_json?.days?.flatMap((day) =>
-      (day.tasks || []).map((task, index) => ({
-        id: `${snapshot.id}-${day.date}-${index}`,
-        goalId: task.goal_id || null,
-        title: task.title,
-        date: day.date,
-        time: '',
-        duration: task.duration_minutes || 60,
-        priority: task.priority || 'medium',
-        status: 'pending'
-      }))
-    ) || []
+    const persistedTaskCount = snapshot.plan_json?.persisted_task_count ?? 0
+    const reusedTaskCount = snapshot.plan_json?.reused_existing_ai_task_count ?? 0
+    const replacedTaskCount = snapshot.plan_json?.replaced_pending_ai_task_count ?? 0
 
-    tasks.value = generatedTasks
-    statusMessage.value = 'AI 已生成本周计划草案。你可以继续手动补充真实任务。'
+    statusMessage.value = [
+      `AI 计划已正式写入任务列表：新增 ${persistedTaskCount} 个任务。`,
+      reusedTaskCount ? `复用 ${reusedTaskCount} 个已完成/已跳过的 AI 任务。` : '',
+      replacedTaskCount ? `替换 ${replacedTaskCount} 个旧的待完成 AI 任务。` : ''
+    ]
+      .filter(Boolean)
+      .join('')
   } catch (error) {
     errorMessage.value = error.message || 'AI 生成计划失败，请稍后重试。'
   } finally {

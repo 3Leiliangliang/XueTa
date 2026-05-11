@@ -1,4 +1,4 @@
-﻿
+
 def test_kb_document_chunk_and_retrieve_flow(client) -> None:
     base_response = client.post(
         "/api/v1/kb/bases",
@@ -98,3 +98,181 @@ def test_note_summarize_endpoint_falls_back_to_rule_based(client) -> None:
     assert summary["model_name"] == "rule-based-draft"
     assert "函数极限整理" in summary["summary_text"] or "定义" in summary["summary_text"]
     assert len(summary["suggestions_json"]["suggestions"]) == 3
+
+
+from app.services.rag import service as rag_service
+
+
+def test_kb_document_can_extract_content_from_source_url(client, monkeypatch) -> None:
+    monkeypatch.setattr(
+        rag_service,
+        'extract_text_from_url',
+        lambda url: ('???????????', {'kind': 'html', 'resolved_url': url, 'mime_type': 'text/html'}),
+    )
+
+    base_response = client.post(
+        "/api/v1/kb/bases",
+        json={"name": "????", "subject": "cs"},
+    )
+    assert base_response.status_code == 201
+    base_id = base_response.json()["id"]
+
+    document_response = client.post(
+        "/api/v1/kb/documents",
+        json={
+            "knowledge_base_id": base_id,
+            "title": "??????",
+            "source_type": "web",
+            "source_url": "https://example.com/article",
+        },
+    )
+    assert document_response.status_code == 201
+    payload = document_response.json()
+    assert payload["source_url"] == "https://example.com/article"
+    assert payload["content_text"] == '???????????'
+    assert payload["chunk_count"] >= 1
+
+
+
+def test_kb_document_creates_embeddings_and_supports_vector_retrieve(client, session_factory, monkeypatch) -> None:
+    from app.models.knowledge import KnowledgeChunkEmbedding
+    from app.services.rag import service as rag_service
+
+    def make_vector(slot: int) -> list[float]:
+        vector = [0.0] * 1536
+        vector[slot] = 1.0
+        return vector
+
+    monkeypatch.setattr(
+        rag_service,
+        'generate_embeddings',
+        lambda texts: (
+            [make_vector(0) if 'topic-a' in text else make_vector(1) for text in texts],
+            'test-embedding',
+        ),
+    )
+    monkeypatch.setattr(
+        rag_service,
+        'generate_embedding',
+        lambda text: (make_vector(1), 'test-embedding'),
+    )
+
+    base_response = client.post(
+        "/api/v1/kb/bases",
+        json={"name": "vector-base", "subject": "math"},
+    )
+    assert base_response.status_code == 201
+    base_id = base_response.json()["id"]
+
+    first_doc = client.post(
+        "/api/v1/kb/documents",
+        json={
+            "knowledge_base_id": base_id,
+            "title": "Doc A",
+            "source_type": "manual",
+            "content_text": "content for topic-a only",
+        },
+    )
+    assert first_doc.status_code == 201
+
+    second_doc = client.post(
+        "/api/v1/kb/documents",
+        json={
+            "knowledge_base_id": base_id,
+            "title": "Doc B",
+            "source_type": "manual",
+            "content_text": "content for topic-b only",
+        },
+    )
+    assert second_doc.status_code == 201
+
+    with session_factory() as db:
+        embedding_count = db.query(KnowledgeChunkEmbedding).count()
+        assert embedding_count == 2
+
+    retrieve_response = client.post(
+        "/api/v1/kb/retrieve",
+        json={"query": "latent semantic query", "knowledge_base_id": base_id, "limit": 2},
+    )
+    assert retrieve_response.status_code == 200
+    payload = retrieve_response.json()
+    assert payload["total_hits"] >= 1
+    assert payload["hits"][0]["document_title"] == "Doc B"
+
+
+
+def test_chat_response_includes_rag_citations_when_kb_matches(client, monkeypatch) -> None:
+    from app.services import chat_service
+
+    monkeypatch.setattr(chat_service, 'generate_chat_reply', lambda question, subject=None, retrieved_chunks=None: None)
+
+    base_response = client.post(
+        "/api/v1/kb/bases",
+        json={"name": "math-rag", "subject": "math"},
+    )
+    assert base_response.status_code == 201
+    base_id = base_response.json()["id"]
+
+    document_response = client.post(
+        "/api/v1/kb/documents",
+        json={
+            "knowledge_base_id": base_id,
+            "title": "Limit Notes",
+            "source_type": "manual",
+            "content_text": "The limit of a function describes the value that the function approaches.",
+        },
+    )
+    assert document_response.status_code == 201
+
+    session_response = client.post(
+        "/api/v1/chat/sessions",
+        json={"subject": "math", "title": "RAG Session"},
+    )
+    assert session_response.status_code == 201
+    session_id = session_response.json()["id"]
+
+    message_response = client.post(
+        f"/api/v1/chat/sessions/{session_id}/messages",
+        json={"content": "What is the limit of a function?"},
+    )
+    assert message_response.status_code == 201
+    payload = message_response.json()
+    assistant_message = payload["assistant_message"]
+    assert assistant_message["model_name"] == "rule-based-draft"
+    assert assistant_message["citations_json"]
+    assert assistant_message["citations_json"][0]["document_title"] == "Limit Notes"
+
+
+
+def test_chat_stream_endpoint_uses_true_stream_deltas(client, monkeypatch) -> None:
+    from app.api.v1 import chat as chat_api
+
+    session_response = client.post(
+        "/api/v1/chat/sessions",
+        json={"subject": "math", "title": "Streaming Session"},
+    )
+    assert session_response.status_code == 201
+    session_id = session_response.json()["id"]
+
+    monkeypatch.setattr(
+        chat_api,
+        'open_chat_reply_stream',
+        lambda question, subject=None, retrieved_chunks=None: (iter(['chunk-1 ', 'chunk-2']), {'model_name': 'stream-test-model'}),
+    )
+
+    stream_response = client.post(
+        f"/api/v1/chat/sessions/{session_id}/messages/stream",
+        json={"content": "stream this answer"},
+    )
+    assert stream_response.status_code == 200
+    assert 'event: delta' in stream_response.text
+    assert 'chunk-1 ' in stream_response.text
+    assert 'chunk-2' in stream_response.text
+
+    messages_response = client.get(f"/api/v1/chat/sessions/{session_id}/messages")
+    assert messages_response.status_code == 200
+    messages = messages_response.json()
+    assert len(messages) == 2
+    assistant_message = messages[-1]
+    assert assistant_message['model_name'] == 'stream-test-model'
+    assert assistant_message['content'] == 'chunk-1 chunk-2'

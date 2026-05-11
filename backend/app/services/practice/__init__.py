@@ -1,1 +1,1 @@
-﻿"""Practice services."""
+"""Practice services."""

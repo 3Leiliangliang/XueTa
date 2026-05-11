@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import date
 from typing import Any
@@ -8,7 +8,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.chat import ChatSession
+from app.models.chat import ChatMessage, ChatSession, MessageRole
 from app.models.note import Note, Notebook
 from app.models.planner import GoalStatus, StudyGoal, StudyTask, TaskStatus
 from app.models.progress import KnowledgeMastery, LearningRecord, ReviewSchedule, ReviewStatus
@@ -207,6 +207,17 @@ def build_progress_overview(db: Session, user: User) -> dict[str, Any]:
     total_chat_sessions = int(
         db.scalar(select(func.count(ChatSession.id)).where(ChatSession.user_id == user.id)) or 0
     )
+    total_chat_questions = int(
+        db.scalar(
+            select(func.count(ChatMessage.id))
+            .join(ChatSession, ChatSession.id == ChatMessage.session_id)
+            .where(
+                ChatSession.user_id == user.id,
+                ChatMessage.role == MessageRole.user,
+            )
+        )
+        or 0
+    )
     total_learning_records = int(
         db.scalar(select(func.count(LearningRecord.id)).where(LearningRecord.user_id == user.id)) or 0
     )
@@ -286,6 +297,7 @@ def build_progress_overview(db: Session, user: User) -> dict[str, Any]:
             "total_notes": total_notes,
             "total_notebooks": total_notebooks,
             "total_chat_sessions": total_chat_sessions,
+            "total_chat_questions": total_chat_questions,
             "total_learning_records": total_learning_records,
             "total_study_minutes": total_study_minutes,
             "average_mastery_score": average_mastery_score,

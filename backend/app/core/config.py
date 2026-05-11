@@ -1,4 +1,4 @@
-﻿from functools import lru_cache
+from functools import lru_cache
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -28,8 +28,10 @@ class Settings(BaseSettings):
     auto_create_tables: bool = True
 
     openai_api_key: str | None = None
+    openai_base_url: str | None = None
     openai_model: str = "gpt-4o"
     openai_embedding_model: str = "text-embedding-3-small"
+    openai_timeout_seconds: float = 20.0
 
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None

@@ -1,4 +1,4 @@
-﻿import hashlib
+import hashlib
 import uuid
 from pathlib import Path
 

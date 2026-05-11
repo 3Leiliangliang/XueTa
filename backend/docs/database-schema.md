@@ -1,4 +1,4 @@
-﻿# Database Schema
+# Database Schema
 
 This document summarizes the first-pass relational schema for the XueTa backend. The schema is designed for an AI learning assistant with four primary product loops:
 

@@ -1,4 +1,4 @@
-﻿
+
 def test_translate_text_endpoint_returns_translation_payload(client) -> None:
     response = client.post(
         '/api/v1/translate/text',
@@ -37,3 +37,30 @@ def test_translate_polish_endpoint_returns_polished_text(client) -> None:
     assert payload['language'] == '中文'
     assert payload['mode'] == 'academic'
     assert payload['model_name']
+
+
+from app.services.translate import service as translate_service
+
+
+def test_translate_text_endpoint_supports_source_url(client, monkeypatch) -> None:
+    monkeypatch.setattr(
+        translate_service,
+        'extract_text_from_url',
+        lambda url: ('???????????', {'kind': 'html', 'source_url': url}),
+    )
+
+    response = client.post(
+        '/api/v1/translate/text',
+        json={
+            'source_url': 'https://example.com/article',
+            'source_language': '??',
+            'target_language': '??',
+            'mode': 'academic',
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['source_url'] == 'https://example.com/article'
+    assert payload['source_text'] == '???????????'
+    assert payload['translated_text']

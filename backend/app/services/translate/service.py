@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import re
 from pathlib import Path
@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.models.file import UploadedFile
 from app.models.user import User
 from app.schemas.translate import TranslatePolishRequest, TranslateTextRequest
+from app.services.content_extraction import ContentExtractionError, extract_text_from_path, extract_text_from_url
 from app.services.llm.service import polish_text_with_model, translate_text_with_model
 
 
@@ -60,8 +61,6 @@ ZH_TO_EN_PHRASES = {
     '答案': 'answer',
 }
 
-TEXT_FILE_EXTENSIONS = {'.txt', '.md', '.markdown', '.csv', '.json', '.py', '.js', '.ts', '.html', '.htm'}
-
 
 def _storage_root() -> Path:
     configured = Path(settings.local_storage_path)
@@ -95,20 +94,42 @@ def _get_uploaded_file_or_404(db: Session, user: User, file_id: UUID) -> Uploade
 
 
 def _read_uploaded_text(file_record: UploadedFile) -> str:
-    extension = f'.{file_record.extension.lower()}' if file_record.extension else ''
-    mime_type = (file_record.mime_type or '').lower()
-    is_text_file = extension in TEXT_FILE_EXTENSIONS or mime_type.startswith('text/') or 'json' in mime_type
-    if not is_text_file:
+    file_path = _resolve_storage_path(file_record)
+    try:
+        text, _ = extract_text_from_path(
+            file_path,
+            mime_type=file_record.mime_type,
+            filename=file_record.original_filename,
+        )
+    except ContentExtractionError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail='Uploaded file is not text-readable yet; please paste text content directly.',
+            detail=str(exc),
+        ) from exc
+
+    if not text:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Uploaded file did not yield readable text.',
         )
+    return text
 
-    file_path = _resolve_storage_path(file_record)
-    if not file_path.exists():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Uploaded file content not found')
 
-    return file_path.read_text(encoding='utf-8', errors='ignore')
+def _read_url_text(source_url: str) -> str:
+    try:
+        text, _ = extract_text_from_url(source_url)
+    except ContentExtractionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    if not text:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Source URL did not yield readable text.',
+        )
+    return text
 
 
 def _replace_phrases(text: str, replacements: dict[str, str]) -> str:
@@ -170,11 +191,15 @@ def _fallback_polish_text(text: str, language: str, mode: str) -> str:
 def translate_text(db: Session, user: User, payload: TranslateTextRequest) -> dict:
     uploaded_file = None
     source_text = (payload.source_text or '').strip()
+    source_url = (payload.source_url or '').strip() or None
 
     if payload.uploaded_file_id is not None:
         uploaded_file = _get_uploaded_file_or_404(db, user, payload.uploaded_file_id)
         if not source_text:
             source_text = _read_uploaded_text(uploaded_file).strip()
+
+    if not source_text and source_url:
+        source_text = _read_url_text(source_url)
 
     if not source_text:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='No text available for translation')
@@ -200,6 +225,7 @@ def translate_text(db: Session, user: User, payload: TranslateTextRequest) -> di
 
     return {
         'source_text': source_text,
+        'source_url': source_url,
         'translated_text': translated_text,
         'source_language': payload.source_language,
         'target_language': payload.target_language,

@@ -1,1 +1,1 @@
-﻿"""Desktop services."""
+"""Desktop services."""
