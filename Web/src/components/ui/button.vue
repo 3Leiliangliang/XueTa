@@ -1,11 +1,15 @@
 <script setup>
-import { computed, ref, onUnmounted } from 'vue'
+import { computed, ref } from 'vue'
+
+defineOptions({
+    name: 'UiButton'
+})
 
 const props = defineProps({
     type:{
         type: String,
         default: 'normal',
-        validator: (value) => ['normal', 'danger'].includes(value)//validator 是 Vue props 的一个验证器函数，用于验证传入的 prop 值是否有效。
+        validator: (value) => ['normal', 'danger', 'color'].includes(value)//validator 是 Vue props 的一个验证器函数，用于验证传入的 prop 值是否有效。
     },
     // 默认状态文字
     defaultText: {

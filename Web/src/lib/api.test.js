@@ -34,6 +34,22 @@ const createJsonResponse = ({ ok, status, payload }) => ({
   text: async () => JSON.stringify(payload)
 })
 
+const createMemoryStorage = () => {
+  const store = new Map()
+  return {
+    getItem: (key) => store.get(key) ?? null,
+    setItem: (key, value) => {
+      store.set(key, String(value))
+    },
+    removeItem: (key) => {
+      store.delete(key)
+    },
+    clear: () => {
+      store.clear()
+    }
+  }
+}
+
 const loadApiModule = async () => {
   vi.resetModules()
   return import('./api')
@@ -44,6 +60,7 @@ beforeEach(() => {
   authState.refreshToken = 'refresh-token'
   authState.clearCalls = 0
   authState.saveCalls = []
+  vi.stubGlobal('localStorage', createMemoryStorage())
   global.fetch = vi.fn()
 })
 
@@ -172,5 +189,47 @@ describe('api auth refresh flow', () => {
 
     const refreshCalls = global.fetch.mock.calls.filter(([url]) => url.includes('/auth/refresh'))
     expect(refreshCalls).toHaveLength(1)
+  })
+
+  it('sends enabled custom llm settings with backend requests', async () => {
+    localStorage.setItem(
+      'xueta_user_settings',
+      JSON.stringify({
+        customLlmEnabled: true,
+        customLlmProvider: 'deepseek',
+        customLlmBaseUrl: 'https://api.deepseek.com',
+        customLlmApiKey: 'user-api-key',
+        customLlmModel: 'deepseek-chat',
+        customLlmEmbeddingModel: 'text-embedding-3-small',
+        customLlmVisionModel: 'qwen-vl-plus',
+        customLlmTimeoutSeconds: 45,
+        customLlmTemperature: 0.7,
+        customLlmMaxTokens: 2048
+      })
+    )
+    global.fetch.mockResolvedValueOnce(
+      createJsonResponse({
+        ok: true,
+        status: 200,
+        payload: { ok: true }
+      })
+    )
+
+    const { apiRequest } = await loadApiModule()
+    await apiRequest('/translate/text', {
+      method: 'POST',
+      body: { source_text: 'hello' }
+    })
+
+    const requestHeaders = global.fetch.mock.calls[0][1].headers
+    expect(requestHeaders.get('X-XueTa-LLM-Enabled')).toBe('true')
+    expect(requestHeaders.get('X-XueTa-LLM-Provider')).toBe('deepseek')
+    expect(requestHeaders.get('X-XueTa-LLM-API-Key')).toBe('user-api-key')
+    expect(requestHeaders.get('X-XueTa-LLM-Chat-Model')).toBe('deepseek-chat')
+    expect(requestHeaders.get('X-XueTa-LLM-Embedding-Model')).toBe('text-embedding-3-small')
+    expect(requestHeaders.get('X-XueTa-LLM-Vision-Model')).toBe('qwen-vl-plus')
+    expect(requestHeaders.get('X-XueTa-LLM-Timeout-Seconds')).toBe('45')
+    expect(requestHeaders.get('X-XueTa-LLM-Temperature')).toBe('0.7')
+    expect(requestHeaders.get('X-XueTa-LLM-Max-Tokens')).toBe('2048')
   })
 })

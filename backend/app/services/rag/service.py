@@ -28,12 +28,20 @@ from app.schemas.kb import (
     KnowledgeRetrieveRequest,
 )
 from app.services.content_extraction import ContentExtractionError, extract_text_from_path, extract_text_from_url
-from app.services.llm.service import generate_embedding, generate_embeddings
+from app.services.llm.service import EMBEDDING_DIMENSIONS, generate_embedding, generate_embeddings
 
 
 MAX_CHUNK_SIZE = 700
 VECTOR_SCORE_THRESHOLD = 0.12
 VECTOR_CANDIDATE_MULTIPLIER = 6
+
+
+def _fit_embedding_dimensions(vector: list[float]) -> list[float]:
+    if len(vector) == EMBEDDING_DIMENSIONS:
+        return vector
+    if len(vector) > EMBEDDING_DIMENSIONS:
+        return vector[:EMBEDDING_DIMENSIONS]
+    return [*vector, *([0.0] * (EMBEDDING_DIMENSIONS - len(vector)))]
 
 
 def _storage_root() -> Path:
@@ -223,17 +231,19 @@ def _sync_document_chunks(db: Session, document: KnowledgeDocument) -> list[Know
     db.flush()
     vectors, embedding_model = generate_embeddings([chunk.content for chunk in chunks])
     for chunk, vector in zip(chunks, vectors):
+        fitted_vector = _fit_embedding_dimensions(vector)
         chunk.metadata_json = {
             **(chunk.metadata_json or {}),
             "embedding_model": embedding_model,
-            "embedding_dimensions": len(vector),
+            "embedding_dimensions": len(fitted_vector),
+            "original_embedding_dimensions": len(vector),
         }
         db.add(
             KnowledgeChunkEmbedding(
                 chunk_id=chunk.id,
                 embedding_model=embedding_model,
-                dimensions=len(vector),
-                embedding=vector,
+                dimensions=len(fitted_vector),
+                embedding=fitted_vector,
             )
         )
 
@@ -595,6 +605,7 @@ def retrieve_knowledge(db: Session, user: User, payload: KnowledgeRetrieveReques
         return {"query": payload.query, "total_hits": 0, "hits": []}
 
     query_vector, _embedding_model = generate_embedding(payload.query)
+    query_vector = _fit_embedding_dimensions(query_vector)
     dialect_name = db.bind.dialect.name if db.bind is not None else ''
 
     if dialect_name == 'postgresql':

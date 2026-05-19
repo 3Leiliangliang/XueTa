@@ -9,6 +9,7 @@ import Progress from '../views/progress.vue'
 import Profile from '../views/profile.vue'
 import Desktop from '../views/desktop.vue'
 import Planning from '../views/planning.vue'
+import Settings from '../views/settings.vue'
 import Login from '../views/auth/login.vue'
 import Register from '../views/auth/register.vue'
 import ResetPassword from '@/views/auth/reset-password.vue'
@@ -101,6 +102,15 @@ const router = createRouter({
       path: '/planning',
       name: 'Planning',
       component: Planning,
+      meta: {
+        showHeader: true,
+        showFooter: true
+      }
+    },
+    {
+      path: '/settings',
+      name: 'Settings',
+      component: Settings,
       meta: {
         showHeader: true,
         showFooter: true

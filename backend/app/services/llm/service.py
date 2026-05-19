@@ -5,6 +5,8 @@ import json
 import logging
 import math
 import re
+from contextvars import ContextVar, Token
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Iterator
 
@@ -17,9 +19,55 @@ EMBEDDING_DIMENSIONS = 1536
 EMBEDDING_TOKEN_RE = re.compile(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]")
 
 
-@lru_cache(maxsize=1)
-def _get_openai_client():
-    if not settings.openai_api_key:
+@dataclass(frozen=True)
+class LlmRequestConfig:
+    api_key: str | None
+    base_url: str | None = None
+    chat_model: str = "gpt-4o"
+    embedding_model: str = "text-embedding-3-small"
+    vision_model: str | None = None
+    timeout_seconds: float = 20.0
+    temperature: float | None = None
+    max_tokens: int | None = None
+    provider: str = "openai-compatible"
+
+
+_request_llm_config: ContextVar[LlmRequestConfig | None] = ContextVar(
+    "xueta_request_llm_config",
+    default=None,
+)
+
+
+def set_request_llm_config(config: LlmRequestConfig) -> Token:
+    return _request_llm_config.set(config)
+
+
+def reset_request_llm_config(token: Token) -> None:
+    _request_llm_config.reset(token)
+
+
+def get_effective_llm_config() -> LlmRequestConfig:
+    request_config = _request_llm_config.get()
+    if request_config is not None and request_config.api_key:
+        return request_config
+
+    return LlmRequestConfig(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
+        chat_model=settings.openai_model,
+        embedding_model=settings.openai_embedding_model,
+        vision_model=settings.openai_model,
+        timeout_seconds=settings.openai_timeout_seconds,
+        provider="openai",
+    )
+
+
+def has_configured_llm() -> bool:
+    return bool(get_effective_llm_config().api_key)
+
+
+def _build_openai_client(config: LlmRequestConfig):
+    if not config.api_key:
         return None
 
     try:
@@ -29,13 +77,41 @@ def _get_openai_client():
         return None
 
     kwargs = {
-        'api_key': settings.openai_api_key,
-        'timeout': settings.openai_timeout_seconds,
+        'api_key': config.api_key,
+        'timeout': config.timeout_seconds,
     }
-    if settings.openai_base_url:
-        kwargs['base_url'] = settings.openai_base_url
+    if config.base_url:
+        kwargs['base_url'] = config.base_url
 
     return OpenAI(**kwargs)
+
+
+@lru_cache(maxsize=1)
+def _get_default_openai_client():
+    if not settings.openai_api_key:
+        return None
+
+    return _build_openai_client(
+        LlmRequestConfig(
+            api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url,
+            chat_model=settings.openai_model,
+            embedding_model=settings.openai_embedding_model,
+            vision_model=settings.openai_model,
+            timeout_seconds=settings.openai_timeout_seconds,
+            provider="openai",
+        )
+    )
+
+
+def _get_openai_client():
+    request_config = _request_llm_config.get()
+    if request_config is not None and request_config.api_key:
+        return _build_openai_client(request_config)
+    return _get_default_openai_client()
+
+
+_get_openai_client.cache_clear = _get_default_openai_client.cache_clear
 
 
 def _create_completion(
@@ -50,11 +126,14 @@ def _create_completion(
     if client is None:
         return None
 
+    config = get_effective_llm_config()
+    request_temperature = config.temperature if config.temperature is not None else temperature
+    request_max_tokens = config.max_tokens if config.max_tokens is not None else max_tokens
     kwargs = {
-        'model': settings.openai_model,
+        'model': config.chat_model,
         'messages': messages,
-        'temperature': temperature,
-        'max_tokens': max_tokens,
+        'temperature': request_temperature,
+        'max_tokens': request_max_tokens,
     }
     if response_format is not None:
         kwargs['response_format'] = response_format
@@ -73,18 +152,18 @@ def _create_completion(
     if not content:
         return None
 
-    model_name = getattr(response, 'model', None) or settings.openai_model
+    model_name = getattr(response, 'model', None) or config.chat_model
     safe_log_generation(
         name=trace_name,
         model=model_name,
         input_payload={
             "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
+            "temperature": request_temperature,
+            "max_tokens": request_max_tokens,
             "response_format": response_format,
         },
         output_payload={"content": content},
-        metadata={"provider": "openai"},
+        metadata={"provider": config.provider},
     )
     return content, model_name
 
@@ -94,9 +173,10 @@ def _create_embeddings(texts: list[str]) -> tuple[list[list[float]], str] | None
     if client is None:
         return None
 
+    config = get_effective_llm_config()
     try:
         response = client.embeddings.create(
-            model=settings.openai_embedding_model,
+            model=config.embedding_model,
             input=[text[:8000] for text in texts],
         )
     except Exception as exc:  # pragma: no cover - network/runtime dependent
@@ -111,13 +191,13 @@ def _create_embeddings(texts: list[str]) -> tuple[list[list[float]], str] | None
     if len(vectors) != len(texts):
         return None
 
-    model_name = getattr(response, 'model', None) or settings.openai_embedding_model
+    model_name = getattr(response, 'model', None) or config.embedding_model
     safe_log_generation(
         name="openai.embeddings",
         model=model_name,
         input_payload={"inputs": [text[:1200] for text in texts]},
         output_payload={"vector_count": len(vectors)},
-        metadata={"provider": "openai"},
+        metadata={"provider": config.provider},
     )
     return vectors, model_name
 
@@ -163,7 +243,7 @@ def _fallback_embedding(text: str) -> list[float]:
 def generate_embeddings(texts: list[str]) -> tuple[list[list[float]], str]:
     normalized_texts = [(text or '').strip() for text in texts]
     if not normalized_texts:
-        return [], settings.openai_embedding_model
+        return [], get_effective_llm_config().embedding_model
 
     result = _create_embeddings(normalized_texts)
     if result is not None:
@@ -266,16 +346,17 @@ def open_chat_reply_stream(
     if client is None:
         return None
 
+    config = get_effective_llm_config()
     messages = _build_chat_messages(question, subject, retrieved_chunks)
-    state = {'model_name': settings.openai_model}
+    state = {'model_name': config.chat_model}
     collected: list[str] = []
 
     try:
         stream = client.chat.completions.create(
-            model=settings.openai_model,
+            model=config.chat_model,
             messages=messages,
-            temperature=0.35,
-            max_tokens=900,
+            temperature=config.temperature if config.temperature is not None else 0.35,
+            max_tokens=config.max_tokens if config.max_tokens is not None else 900,
             stream=True,
         )
     except Exception as exc:  # pragma: no cover - network/runtime dependent
@@ -296,10 +377,10 @@ def open_chat_reply_stream(
         if collected:
             safe_log_generation(
                 name="chat.reply.stream",
-                model=state.get("model_name", settings.openai_model),
+                model=state.get("model_name", config.chat_model),
                 input_payload={"messages": messages, "stream": True},
                 output_payload={"content": ''.join(collected)},
-                metadata={"provider": "openai"},
+                metadata={"provider": config.provider},
             )
 
     return iterator(), state

@@ -4,6 +4,7 @@ import {
   getRefreshToken,
   saveAuthSession
 } from './auth'
+import { getActiveLlmRequestHeaders } from './settings'
 
 const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api/v1'
 export const API_BASE_URL = rawBaseUrl.replace(/\/+$/, '')
@@ -19,6 +20,21 @@ export class ApiError extends Error {
     this.payload = payload
   }
 }
+
+const isNetworkError = (error) =>
+  error instanceof TypeError && String(error.message || '').toLowerCase().includes('fetch')
+
+const createNetworkError = (error) =>
+  new ApiError(
+    '无法连接后端服务，请确认后端已启动且当前前端地址已被后端 CORS 允许。',
+    {
+      status: 0,
+      payload: {
+        cause: error.message,
+        baseUrl: API_BASE_URL
+      }
+    }
+  )
 
 const getErrorMessage = (payload, status) => {
   if (!payload) return `Request failed (${status})`
@@ -65,7 +81,10 @@ const buildRequestHeaders = ({
   body,
   acceptSse = false
 }) => {
-  const requestHeaders = new Headers(headers || {})
+  const requestHeaders = new Headers(getActiveLlmRequestHeaders())
+  new Headers(headers || {}).forEach((value, key) => {
+    requestHeaders.set(key, value)
+  })
   if (acceptSse) {
     requestHeaders.set('Accept', 'text/event-stream')
   }
@@ -93,11 +112,19 @@ const refreshAccessToken = async () => {
 
   if (!refreshPromise) {
     refreshPromise = (async () => {
-      const response = await fetch(buildUrl(REFRESH_PATH), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: refreshToken })
-      })
+      let response
+      try {
+        response = await fetch(buildUrl(REFRESH_PATH), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: refreshToken })
+        })
+      } catch (error) {
+        if (isNetworkError(error)) {
+          throw createNetworkError(error)
+        }
+        throw error
+      }
 
       const payload = await parseJsonSafely(response)
       if (!response.ok) {
@@ -193,12 +220,20 @@ export const apiRequest = async (
   let token = getAuthTokenOrThrow(auth)
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const response = await fetch(buildUrl(path), {
-      method,
-      headers: buildRequestHeaders({ headers, auth, token, body }),
-      body: buildRequestBody(body),
-      signal
-    })
+    let response
+    try {
+      response = await fetch(buildUrl(path), {
+        method,
+        headers: buildRequestHeaders({ headers, auth, token, body }),
+        body: buildRequestBody(body),
+        signal
+      })
+    } catch (error) {
+      if (isNetworkError(error)) {
+        throw createNetworkError(error)
+      }
+      throw error
+    }
 
     const payload = await parseJsonSafely(response)
     if (response.ok) {
@@ -236,12 +271,20 @@ export const apiRawRequest = async (
   let token = getAuthTokenOrThrow(auth)
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const response = await fetch(buildUrl(path), {
-      method,
-      headers: buildRequestHeaders({ headers, auth, token, body }),
-      body: buildRequestBody(body),
-      signal
-    })
+    let response
+    try {
+      response = await fetch(buildUrl(path), {
+        method,
+        headers: buildRequestHeaders({ headers, auth, token, body }),
+        body: buildRequestBody(body),
+        signal
+      })
+    } catch (error) {
+      if (isNetworkError(error)) {
+        throw createNetworkError(error)
+      }
+      throw error
+    }
 
     if (response.ok) {
       return response
@@ -273,17 +316,25 @@ export const streamSseRequest = async (
   let token = getAuthTokenOrThrow(auth)
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const response = await fetch(buildUrl(path), {
-      method,
-      headers: buildRequestHeaders({
-        headers,
-        auth,
-        token,
-        body,
-        acceptSse: true
-      }),
-      body: buildRequestBody(body)
-    })
+    let response
+    try {
+      response = await fetch(buildUrl(path), {
+        method,
+        headers: buildRequestHeaders({
+          headers,
+          auth,
+          token,
+          body,
+          acceptSse: true
+        }),
+        body: buildRequestBody(body)
+      })
+    } catch (error) {
+      if (isNetworkError(error)) {
+        throw createNetworkError(error)
+      }
+      throw error
+    }
 
     if (response.ok && response.body) {
       await consumeSseStream(response, onEvent)

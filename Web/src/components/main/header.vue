@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import Logo from './logo.vue'
+import IconSettings from '@/components/icons/IconSettings.vue'
 import { apiRequest } from '@/lib/api'
 import {
   AUTH_SESSION_EVENT,
@@ -84,8 +85,8 @@ onUnmounted(() => {
 
 <template>
   <header class="sticky top-0 z-50 w-full border-b border-slate-200/80 bg-white/78 px-4 backdrop-blur-sm md:px-8 xl:px-12">
-    <div class="container flex h-16 items-center justify-between gap-4">
-      <div class="flex min-w-0 items-center gap-2">
+    <div class="grid h-16 w-full grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4">
+      <div class="flex min-w-0 items-center gap-2 justify-self-start">
         <router-link to="/">
           <Logo />
         </router-link>
@@ -94,7 +95,7 @@ onUnmounted(() => {
         </span>
       </div>
 
-      <nav class="hidden items-center gap-4 text-sm font-medium text-slate-600 lg:flex xl:gap-5">
+      <nav class="hidden items-center justify-center gap-4 text-sm font-medium text-slate-600 lg:flex xl:gap-5">
         <router-link
           v-for="item in navItems"
           :key="item.id"
@@ -108,7 +109,21 @@ onUnmounted(() => {
         </router-link>
       </nav>
 
-      <div class="flex items-center gap-2 md:gap-3">
+      <div class="flex items-center gap-2 justify-self-end md:gap-3">
+        <router-link
+          to="/settings"
+          :class="[
+            'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors',
+            isActive('/settings')
+              ? 'border-[#3A86FF] bg-blue-50 text-[#3A86FF]'
+              : 'border-slate-200 bg-white text-slate-700 hover:border-[#3A86FF] hover:text-[#3A86FF]'
+          ]"
+          aria-label="打开设置"
+          title="设置"
+        >
+          <IconSettings class="h-4 w-4" />
+          <span class="hidden sm:inline">设置</span>
+        </router-link>
         <template v-if="currentUser">
           <router-link
             to="/profile"

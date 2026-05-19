@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import IconQA from '@/components/icons/IconQA.vue'
+import IconSearch from '@/components/icons/IconSearch.vue'
 import IconSparkles from '@/components/icons/IconSparkles.vue'
 import { apiRequest, streamSseRequest } from '@/lib/api'
 import { hasAccessToken } from '@/lib/auth'
@@ -28,7 +29,10 @@ const messageViewport = ref(null)
 const composerTextarea = ref(null)
 const isSidebarOpen = ref(false)
 const isDesktopSidebarCollapsed = ref(false)
+const isSessionSearchOpen = ref(false)
+const sessionSearchQuery = ref('')
 const showScrollToBottom = ref(false)
+const sessionSearchInput = ref(null)
 const SIDEBAR_COLLAPSE_KEY = 'qa_sidebar_collapsed'
 const suggestedQuestions = [
   '如何高效预习一门新课程？',
@@ -113,7 +117,14 @@ const buildSessionGroups = (allSessions) => {
   return groups.filter((group) => group.items.length)
 }
 
-const groupedSessions = computed(() => buildSessionGroups(sessions.value))
+const filteredSessions = computed(() => {
+  const keyword = sessionSearchQuery.value.trim().toLowerCase()
+  if (!keyword) return sessions.value
+  return sessions.value.filter((session) =>
+    displaySessionTitle(session).toLowerCase().includes(keyword)
+  )
+})
+const groupedFilteredSessions = computed(() => buildSessionGroups(filteredSessions.value))
 
 const latestAssistantMessage = computed(() => {
   for (let index = visibleMessages.value.length - 1; index >= 0; index -= 1) {
@@ -476,6 +487,36 @@ const toggleSidebar = () => {
 
 const toggleDesktopSidebar = () => {
   isDesktopSidebarCollapsed.value = !isDesktopSidebarCollapsed.value
+}
+
+const hideSidebar = () => {
+  isSidebarOpen.value = false
+  if (typeof window === 'undefined') return
+  if (window.matchMedia('(min-width: 1024px)').matches) {
+    isDesktopSidebarCollapsed.value = true
+  }
+}
+
+const focusSessionSearch = () => {
+  nextTick(() => {
+    sessionSearchInput.value?.focus()
+  })
+}
+
+const openSessionSearch = () => {
+  isSessionSearchOpen.value = true
+  isDesktopSidebarCollapsed.value = false
+  isSidebarOpen.value = true
+  focusSessionSearch()
+}
+
+const toggleSessionSearch = () => {
+  isSessionSearchOpen.value = !isSessionSearchOpen.value
+  if (isSessionSearchOpen.value) {
+    focusSessionSearch()
+  } else {
+    sessionSearchQuery.value = ''
+  }
 }
 
 const loadSidebarPreference = () => {
@@ -992,7 +1033,7 @@ watch(isDesktopSidebarCollapsed, (value) => {
     <section class="qa-stage relative flex h-[calc(100vh-4rem)] min-h-[560px] overflow-hidden flex-col lg:flex-row">
       <aside
         :class="[
-          'absolute inset-y-0 left-0 z-30 w-[292px] shrink-0 border-r border-slate-200 bg-[#f0f1f4] transition-all duration-300 ease-out lg:relative lg:translate-x-0',
+          'absolute inset-y-0 left-0 z-30 flex w-[292px] shrink-0 flex-col border-r border-slate-200 bg-[#f0f1f4] transition-all duration-300 ease-out lg:relative lg:translate-x-0',
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
           isSidebarVisibleDesktop
             ? 'lg:w-[292px] lg:opacity-100'
@@ -1000,9 +1041,56 @@ watch(isDesktopSidebarCollapsed, (value) => {
         ]"
       >
         <div class="border-b border-slate-200 px-4 pb-4 pt-5">
-          <div class="flex items-center gap-2 text-[#3A86FF]">
-            <IconQA class="h-6 w-6" />
-            <span class="text-2xl font-semibold leading-none">学塔答疑</span>
+          <div class="flex items-center justify-between gap-3 text-[#3A86FF]">
+            <div class="flex min-w-0 items-center gap-2">
+              <IconQA class="h-7 w-7 shrink-0" />
+              <span class="truncate text-2xl font-semibold leading-none">XueTa</span>
+            </div>
+            <div class="flex shrink-0 items-center gap-1 text-slate-600">
+              <button
+                type="button"
+                class="nav-icon-btn btn-pop"
+                :class="isSessionSearchOpen ? 'text-[#3A86FF]' : ''"
+                title="搜索会话"
+                aria-label="搜索会话"
+                @click="toggleSessionSearch"
+              >
+                <IconSearch class="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                class="nav-icon-btn btn-pop"
+                title="隐藏侧边栏"
+                aria-label="隐藏侧边栏"
+                @click="hideSidebar"
+              >
+                <svg
+                  class="h-5 w-5"
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <rect width="16" height="18" x="4" y="3" rx="2" />
+                  <path d="M10 3v18" />
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div v-if="isSessionSearchOpen" class="mt-4">
+            <label class="relative block">
+              <IconSearch class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                ref="sessionSearchInput"
+                v-model="sessionSearchQuery"
+                type="search"
+                class="h-10 w-full rounded-2xl border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-[#3A86FF]"
+                placeholder="搜索历史会话"
+              />
+            </label>
           </div>
           <button
             type="button"
@@ -1015,9 +1103,9 @@ watch(isDesktopSidebarCollapsed, (value) => {
           <p class="mt-2 px-1 text-[11px] text-slate-400">共 {{ sessions.length }} 个会话</p>
         </div>
 
-        <div class="h-[calc(100vh-108px)] overflow-y-auto px-3 py-4">
+        <div class="min-h-0 flex-1 overflow-y-auto px-3 py-4">
           <div v-if="isLoadingSessions" class="px-2 py-2 text-xs text-slate-400">会话加载中...</div>
-          <template v-for="group in groupedSessions" :key="group.key">
+          <template v-for="group in groupedFilteredSessions" :key="group.key">
             <section class="mb-4">
               <p class="px-2 text-xs font-medium text-slate-400">{{ group.label }}</p>
               <div class="mt-2 space-y-1">
@@ -1056,30 +1144,145 @@ watch(isDesktopSidebarCollapsed, (value) => {
               </div>
             </section>
           </template>
-          <p v-if="!sessions.length && !isLoadingSessions" class="px-2 py-2 text-xs text-slate-400">
-            还没有历史会话
+          <p v-if="!filteredSessions.length && !isLoadingSessions" class="px-2 py-2 text-xs text-slate-400">
+            {{ sessionSearchQuery.trim() ? '没有匹配的会话' : '还没有历史会话' }}
           </p>
         </div>
       </aside>
 
+      <Transition name="float-dock">
+        <div
+          v-if="!isSidebarVisibleDesktop"
+          class="qa-floating-dock absolute left-5 top-4 z-20 hidden items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-2.5 py-2 text-slate-900 shadow-[0_10px_30px_rgba(15,23,42,0.12)] backdrop-blur lg:flex"
+        >
+          <IconQA class="mr-1 h-7 w-7 text-[#3A86FF]" />
+          <button
+            type="button"
+            class="floating-icon-btn btn-pop"
+            title="展开侧边栏"
+            aria-label="展开侧边栏"
+            @click="toggleDesktopSidebar"
+          >
+            <svg
+              class="h-5 w-5"
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect width="16" height="18" x="4" y="3" rx="2" />
+              <path d="M10 3v18" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="floating-icon-btn btn-pop"
+            title="搜索会话"
+            aria-label="搜索会话"
+            @click="openSessionSearch"
+          >
+            <IconSearch class="h-5 w-5" />
+          </button>
+          <button
+            type="button"
+            class="floating-icon-btn btn-pop"
+            title="新对话"
+            aria-label="新对话"
+            :disabled="isCreatingSession"
+            @click="createNewSession"
+          >
+            <svg
+              class="h-5 w-5"
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 8v8" />
+              <path d="M8 12h8" />
+            </svg>
+          </button>
+        </div>
+      </Transition>
+
+      <Transition name="float-dock">
+        <div
+          v-if="!isSidebarOpen"
+          class="qa-floating-dock absolute left-4 top-4 z-20 flex items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-2.5 py-2 text-slate-900 shadow-[0_10px_30px_rgba(15,23,42,0.12)] backdrop-blur lg:hidden"
+        >
+          <IconQA class="mr-1 h-7 w-7 text-[#3A86FF]" />
+          <button
+            type="button"
+            class="floating-icon-btn btn-pop"
+            title="展开侧边栏"
+            aria-label="展开侧边栏"
+            @click="toggleSidebar"
+          >
+            <svg
+              class="h-5 w-5"
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect width="16" height="18" x="4" y="3" rx="2" />
+              <path d="M10 3v18" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="floating-icon-btn btn-pop"
+            title="搜索会话"
+            aria-label="搜索会话"
+            @click="openSessionSearch"
+          >
+            <IconSearch class="h-5 w-5" />
+          </button>
+          <button
+            type="button"
+            class="floating-icon-btn btn-pop"
+            title="新对话"
+            aria-label="新对话"
+            :disabled="isCreatingSession"
+            @click="createNewSession"
+          >
+            <svg
+              class="h-5 w-5"
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 8v8" />
+              <path d="M8 12h8" />
+            </svg>
+          </button>
+        </div>
+      </Transition>
+
       <section class="relative flex min-w-0 flex-1 flex-col">
         <header class="flex h-14 items-center justify-between border-b border-slate-200 bg-[#f8f9fb] px-5">
-          <div class="flex min-w-0 items-center gap-3">
-            <button
-              type="button"
-              class="btn-pop rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-600 lg:hidden"
-              @click="toggleSidebar"
-            >
-              会话
-            </button>
-            <button
-              type="button"
-              class="btn-pop hidden rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-600 lg:inline-flex"
-              @click="toggleDesktopSidebar"
-            >
-              {{ isSidebarVisibleDesktop ? '隐藏会话' : '显示会话' }}
-            </button>
-            <p class="truncate text-sm font-medium text-slate-700">{{ currentSessionTitle }}</p>
+          <div
+            :class="[
+              'flex min-w-0 items-center gap-3',
+              isSidebarVisibleDesktop ? '' : 'lg:pl-[210px]'
+            ]"
+          >
+            <p class="hidden truncate text-sm font-medium text-slate-700 sm:block">{{ currentSessionTitle }}</p>
           </div>
           <div class="flex items-center gap-2 text-[11px] text-slate-500">
             <span class="hidden md:inline">累计提问 {{ formattedQuestionCount }}</span>
@@ -1298,6 +1501,48 @@ watch(isDesktopSidebarCollapsed, (value) => {
   transform: scale(0.96);
 }
 
+.nav-icon-btn,
+.floating-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: currentColor;
+  transition: color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.nav-icon-btn {
+  height: 2rem;
+  width: 2rem;
+  border-radius: 9999px;
+}
+
+.floating-icon-btn {
+  height: 2.25rem;
+  width: 2.25rem;
+  border-radius: 9999px;
+}
+
+.nav-icon-btn:hover,
+.floating-icon-btn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.nav-icon-btn:focus-visible,
+.floating-icon-btn:focus-visible {
+  outline: 2px solid rgb(58 134 255 / 0.38);
+  outline-offset: 2px;
+}
+
+.floating-icon-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.qa-floating-dock {
+  transform: translateZ(0);
+}
+
 .empty-hero {
   animation: fade-up 0.32s ease-out;
 }
@@ -1331,6 +1576,17 @@ watch(isDesktopSidebarCollapsed, (value) => {
 .fab-leave-to {
   opacity: 0;
   transform: translateY(8px) scale(0.92);
+}
+
+.float-dock-enter-active,
+.float-dock-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.float-dock-enter-from,
+.float-dock-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.96);
 }
 
 @keyframes fade-up {

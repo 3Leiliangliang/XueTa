@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import IconDocument from '@/components/icons/IconDocument.vue'
+import IconRight from '@/components/icons/IconRight.vue'
 import IconSearch from '@/components/icons/IconSearch.vue'
 import Input from '@/components/ui/input.vue'
 import { apiRequest } from '@/lib/api'
@@ -10,6 +11,10 @@ import { hasAccessToken } from '@/lib/auth'
 
 const route = useRoute()
 const router = useRouter()
+
+defineOptions({
+  name: 'KnowledgeBaseView'
+})
 
 const authMessage = ref('')
 const errorMessage = ref('')
@@ -29,6 +34,9 @@ const activeDocumentId = ref('')
 const activeChunkId = ref('')
 const documentKeyword = ref('')
 const retrieveQuery = ref('')
+const activeContentTab = ref('documents')
+const showCreateBase = ref(false)
+const showCreateDocument = ref(false)
 
 const baseForm = ref({
   name: '',
@@ -45,6 +53,14 @@ const documentForm = ref({
 
 const selectedDocument = computed(
   () => documents.value.find((item) => item.id === activeDocumentId.value) || null
+)
+
+const activeBase = computed(
+  () => bases.value.find((item) => item.id === activeBaseId.value) || null
+)
+
+const totalDocumentCount = computed(() =>
+  bases.value.reduce((total, item) => total + Number(item.document_count || 0), 0)
 )
 
 const syncRouteQuery = () => {
@@ -176,6 +192,7 @@ const selectBase = async (baseId) => {
   activeBaseId.value = baseId
   documentKeyword.value = ''
   hits.value = []
+  activeContentTab.value = 'documents'
   errorMessage.value = ''
   activeChunkId.value = ''
   await loadDocuments(baseId, '')
@@ -192,6 +209,7 @@ const selectDocument = async (documentId) => {
 
 const searchDocuments = async () => {
   try {
+    activeContentTab.value = 'documents'
     await loadDocuments(activeBaseId.value, documentKeyword.value.trim(), {
       preserveDocument: true
     })
@@ -225,7 +243,9 @@ const createBase = async () => {
     baseForm.value.subject = ''
     baseForm.value.description = ''
     statusMessage.value = `知识库“${base.name}”已创建。`
-    await loadBases()
+    showCreateBase.value = false
+    activeBaseId.value = base.id
+    await loadBases({ preserveBase: true })
   } catch (error) {
     errorMessage.value = error.message || '创建知识库失败，请稍后重试。'
   } finally {
@@ -274,6 +294,8 @@ const createDocument = async () => {
     documentForm.value.contentText = ''
     documentForm.value.tagsText = ''
     statusMessage.value = `文档“${document.title}”已创建并自动切块。`
+    showCreateDocument.value = false
+    activeContentTab.value = 'documents'
     await loadDocuments(activeBaseId.value, documentKeyword.value.trim())
     activeDocumentId.value = document.id
     await loadChunks(document.id)
@@ -346,6 +368,7 @@ const retrieveKnowledge = async () => {
       }
     })
     hits.value = payload.hits
+    activeContentTab.value = 'results'
     statusMessage.value = payload.total_hits
       ? `检索完成，共找到 ${payload.total_hits} 条命中。`
       : '没有命中结果，可以换个关键词再试。'
@@ -409,298 +432,418 @@ watch(
 </script>
 
 <template>
-  <div class="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100">
-    <main class="container mx-auto space-y-8 px-4 py-8 md:px-10 md:py-10 lg:px-16 lg:py-12">
-      <section class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div class="flex items-center gap-3">
-          <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-r from-[#3A86FF] to-[#6C5CE7] shadow-md">
-            <IconDocument class="h-5 w-5 text-white" />
-          </div>
-          <div>
-            <h1 class="bg-gradient-to-r from-[#3A86FF] to-[#6C5CE7] bg-clip-text text-2xl font-bold text-transparent md:text-3xl lg:text-4xl">
-              知识库中心
-            </h1>
-            <p class="mt-1 text-sm text-slate-600">
-              管理知识库、录入文档、查看切块，并基于关键词完成快速检索。
-            </p>
-          </div>
+  <div class="min-h-screen bg-gradient-to-b from-slate-50 to-white">
+    <main class="mx-auto max-w-[1840px] space-y-6 px-4 py-8 md:px-8 lg:px-12">
+      <section class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h1 class="bg-gradient-to-r from-[#3A86FF] to-[#6C5CE7] bg-clip-text text-3xl font-bold tracking-normal text-transparent md:text-4xl">
+            知识库中心
+          </h1>
+          <p class="mt-3 text-base text-slate-500">
+            管理学习资料，支持知识检索和来源追溯。
+          </p>
         </div>
+
         <button
           type="button"
-          class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-50"
-          :disabled="isLoading"
-          @click="loadKnowledgeData"
+          class="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#3A86FF] to-[#6C5CE7] px-5 py-3 text-sm font-medium text-white shadow-sm transition hover:opacity-90 disabled:opacity-60"
+          :disabled="isCreatingBase"
+          @click="showCreateBase = !showCreateBase"
         >
-          {{ isLoading ? '刷新中...' : '刷新知识库' }}
+          <span class="text-lg leading-none">+</span>
+          新建知识库
         </button>
       </section>
 
       <section v-if="authMessage || errorMessage || statusMessage" class="space-y-3">
         <p
           v-if="authMessage"
-          class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700"
+          class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700"
         >
           {{ authMessage }}
         </p>
         <p
           v-if="errorMessage"
-          class="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600"
+          class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600"
         >
           {{ errorMessage }}
         </p>
         <p
           v-if="statusMessage"
-          class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
+          class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
         >
           {{ statusMessage }}
         </p>
       </section>
 
-      <section class="grid gap-6 xl:grid-cols-[0.82fr_1.05fr_1.13fr]">
-        <div class="space-y-6">
-          <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div class="flex items-center justify-between">
-              <h2 class="text-lg font-semibold text-slate-900">知识库列表</h2>
-              <span class="text-xs text-slate-400">{{ bases.length }} 个</span>
+      <section
+        v-if="showCreateBase"
+        class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+      >
+        <div class="mb-4 flex items-center justify-between">
+          <h2 class="text-lg font-semibold text-slate-900">新建知识库</h2>
+          <button
+            type="button"
+            class="text-sm text-slate-400 transition hover:text-slate-700"
+            @click="showCreateBase = false"
+          >
+            收起
+          </button>
+        </div>
+        <div class="grid gap-4 lg:grid-cols-[1fr_1fr_1.4fr_auto] lg:items-end">
+          <label class="space-y-2">
+            <span class="text-sm font-medium text-slate-700">名称</span>
+            <Input v-model="baseForm.name" placeholder="例如：JavaScript 学习资料" />
+          </label>
+          <label class="space-y-2">
+            <span class="text-sm font-medium text-slate-700">学科</span>
+            <Input v-model="baseForm.subject" placeholder="例如：前端 / 数学" />
+          </label>
+          <label class="space-y-2">
+            <span class="text-sm font-medium text-slate-700">描述</span>
+            <Input v-model="baseForm.description" placeholder="资料来源、课程范围或适用场景" />
+          </label>
+          <button
+            type="button"
+            class="h-10 rounded-lg bg-gradient-to-r from-[#3A86FF] to-[#6C5CE7] px-5 text-sm text-white transition hover:opacity-90 disabled:opacity-60"
+            :disabled="isCreatingBase"
+            @click="createBase"
+          >
+            {{ isCreatingBase ? '创建中...' : '创建' }}
+          </button>
+        </div>
+      </section>
+
+      <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div class="flex flex-col gap-3 md:flex-row">
+          <label class="relative min-w-0 flex-1">
+            <IconSearch class="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+            <input
+              v-model="retrieveQuery"
+              type="search"
+              placeholder="输入问题或关键词检索知识库..."
+              class="h-14 w-full rounded-xl border border-slate-200 bg-slate-50 pl-12 pr-4 text-base text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[#3A86FF] focus:bg-white focus:ring-2 focus:ring-[#3A86FF]/15"
+              @keyup.enter="retrieveKnowledge"
+            />
+          </label>
+          <button
+            type="button"
+            class="h-14 rounded-xl bg-[#3A86FF] px-8 text-base font-medium text-white transition hover:bg-[#2f74df] disabled:opacity-60"
+            :disabled="isSearching"
+            @click="retrieveKnowledge"
+          >
+            {{ isSearching ? '检索中...' : '检索' }}
+          </button>
+        </div>
+      </section>
+
+      <section class="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
+        <aside class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div class="mb-6 flex items-center gap-3">
+            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-[#3A86FF]/10 text-[#3A86FF]">
+              <IconDocument class="h-5 w-5" />
             </div>
-            <div class="mt-4 space-y-3">
+            <div>
+              <h2 class="text-lg font-semibold text-slate-950">知识库</h2>
+              <p class="text-xs text-slate-400">
+                {{ bases.length }} 个知识库 · {{ totalDocumentCount }} 篇文档
+              </p>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <div
+              v-for="base in bases"
+              :key="base.id"
+              :class="[
+                'group flex w-full items-center gap-2 rounded-xl border transition',
+                activeBaseId === base.id
+                  ? 'border-[#3A86FF]/30 bg-[#3A86FF]/10 text-[#1f5fd6]'
+                  : 'border-transparent bg-white text-slate-700 hover:bg-slate-50'
+              ]"
+            >
               <button
-                v-for="base in bases"
-                :key="base.id"
                 type="button"
-                :class="[
-                  'w-full rounded-2xl border px-4 py-3 text-left transition-colors',
-                  activeBaseId === base.id
-                    ? 'border-[#3A86FF] bg-blue-50'
-                    : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
-                ]"
+                class="flex min-w-0 flex-1 items-center gap-3 px-3 py-3 text-left"
                 @click="selectBase(base.id)"
               >
-                <div class="flex items-start justify-between gap-3">
-                  <div class="min-w-0 flex-1">
-                    <p class="truncate font-medium text-slate-900">{{ base.name }}</p>
-                    <p class="mt-1 text-xs text-slate-500">
-                      {{ base.subject || '未分类' }} · {{ base.document_count }} 篇文档
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    class="text-xs text-rose-500 hover:underline"
-                    @click.stop="deleteBase(base.id, base.name)"
-                  >
-                    删除
-                  </button>
-                </div>
+                <span
+                  :class="[
+                    'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border',
+                    activeBaseId === base.id
+                      ? 'border-[#3A86FF]/25 bg-white text-[#3A86FF]'
+                      : 'border-slate-200 bg-slate-50 text-slate-400'
+                  ]"
+                >
+                  <IconDocument class="h-4 w-4" />
+                </span>
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate text-sm font-semibold">{{ base.name }}</span>
+                  <span class="mt-0.5 block truncate text-xs text-slate-400">
+                    {{ base.subject || '未分类' }}
+                  </span>
+                </span>
               </button>
-              <p v-if="!bases.length && !isLoading" class="text-sm text-slate-400">
-                当前还没有知识库，先创建一个再录入文档。
-              </p>
-            </div>
-          </div>
-
-          <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 class="text-lg font-semibold text-slate-900">新建知识库</h2>
-            <div class="mt-4 space-y-4">
-              <div class="space-y-2">
-                <label class="text-sm font-medium text-slate-700">名称</label>
-                <Input v-model="baseForm.name" placeholder="例如：高数知识库" />
-              </div>
-              <div class="space-y-2">
-                <label class="text-sm font-medium text-slate-700">学科</label>
-                <Input v-model="baseForm.subject" placeholder="例如：数学" />
-              </div>
-              <div class="space-y-2">
-                <label class="text-sm font-medium text-slate-700">描述</label>
-                <textarea
-                  v-model="baseForm.description"
-                  class="min-h-[110px] w-full rounded-md border border-slate-200 px-3 py-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#3A86FF] focus:ring-offset-2"
-                  placeholder="补充这个知识库的用途、课程来源或适用范围。"
-                ></textarea>
-              </div>
-              <div class="flex justify-end">
-                <button
-                  type="button"
-                  class="rounded-lg bg-gradient-to-r from-[#3A86FF] to-[#6C5CE7] px-5 py-2 text-sm text-white transition-opacity hover:opacity-90 disabled:opacity-60"
-                  :disabled="isCreatingBase"
-                  @click="createBase"
-                >
-                  {{ isCreatingBase ? '创建中...' : '创建知识库' }}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="space-y-6">
-          <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <h2 class="text-lg font-semibold text-slate-900">文档列表</h2>
-              <div class="flex items-center gap-2">
-                <Input
-                  v-model="documentKeyword"
-                  placeholder="搜索当前知识库文档"
-                  class="w-full md:w-56"
-                />
-                <button
-                  type="button"
-                  class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-50"
-                  @click="searchDocuments"
-                >
-                  搜索
-                </button>
-              </div>
-            </div>
-            <div class="mt-4 space-y-3">
+              <span class="text-xs text-slate-400">{{ base.document_count || 0 }}</span>
               <button
-                v-for="document in documents"
-                :key="document.id"
+                type="button"
+                class="mr-2 rounded-md px-1.5 py-1 text-xs text-slate-300 opacity-0 transition hover:bg-rose-50 hover:text-rose-500 group-hover:opacity-100"
+                @click="deleteBase(base.id, base.name)"
+              >
+                删除
+              </button>
+            </div>
+
+            <p v-if="!bases.length && !isLoading" class="rounded-xl bg-slate-50 px-3 py-4 text-sm text-slate-500">
+              当前还没有知识库，点击右上角按钮创建。
+            </p>
+          </div>
+        </aside>
+
+        <section class="min-w-0 space-y-5">
+          <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div class="inline-flex rounded-xl bg-slate-100 p-1">
+              <button
                 type="button"
                 :class="[
-                  'w-full rounded-2xl border px-4 py-3 text-left transition-colors',
-                  activeDocumentId === document.id
-                    ? 'border-[#3A86FF] bg-blue-50'
-                    : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                  'inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition',
+                  activeContentTab === 'documents'
+                    ? 'bg-white text-slate-950 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800'
                 ]"
-                @click="selectDocument(document.id)"
+                @click="activeContentTab = 'documents'"
               >
-                <div class="flex items-start justify-between gap-3">
-                  <div class="min-w-0 flex-1">
-                    <p class="truncate font-medium text-slate-900">{{ document.title }}</p>
-                    <p class="mt-1 text-xs text-slate-500">
-                      {{ document.chunk_count }} 个切块 · {{ document.tags?.join(' / ') || '无标签' }}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    class="text-xs text-rose-500 hover:underline"
-                    @click.stop="deleteDocument(document.id, document.title)"
-                  >
-                    删除
-                  </button>
-                </div>
+                <IconDocument class="h-4 w-4" />
+                文档
               </button>
-              <p v-if="!documents.length && !isLoading" class="text-sm text-slate-400">
-                当前知识库还没有文档，右下方可以直接手动录入一篇。
-              </p>
-            </div>
-          </div>
-
-          <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 class="text-lg font-semibold text-slate-900">录入文档</h2>
-            <p class="mt-1 text-sm text-slate-500">
-              先接通手动录入流程，后续可以继续扩展上传文件导入和 OCR。
-            </p>
-            <div class="mt-4 space-y-4">
-              <div class="space-y-2">
-                <label class="text-sm font-medium text-slate-700">文档标题</label>
-                <Input v-model="documentForm.title" placeholder="例如：函数极限讲义" />
-              </div>
-              <div class="space-y-2">
-                <label class="text-sm font-medium text-slate-700">标签</label>
-                <Input v-model="documentForm.tagsText" placeholder="例如：极限, 连续性, 例题" />
-              </div>
-              <div class="space-y-2">
-                <label class="text-sm font-medium text-slate-700">网页地址（可选）</label>
-                <Input v-model="documentForm.sourceUrl" placeholder="https://example.com/article" />
-              </div>
-              <div class="space-y-2">
-                <label class="text-sm font-medium text-slate-700">文档正文</label>
-                <textarea
-                  v-model="documentForm.contentText"
-                  class="min-h-[240px] w-full rounded-md border border-slate-200 px-3 py-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#3A86FF] focus:ring-offset-2"
-                  placeholder="粘贴课程讲义、知识点总结或例题解析；如果填写了网页地址，也可以留空让系统自动抓取正文。"
-                ></textarea>
-              </div>
-              <div class="flex justify-end">
-                <button
-                  type="button"
-                  class="rounded-lg bg-gradient-to-r from-[#3A86FF] to-[#6C5CE7] px-5 py-2 text-sm text-white transition-opacity hover:opacity-90 disabled:opacity-60"
-                  :disabled="isCreatingDocument"
-                  @click="createDocument"
-                >
-                  {{ isCreatingDocument ? '录入中...' : '录入文档' }}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="space-y-6">
-          <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div class="flex items-center gap-2">
-              <IconSearch class="h-4 w-4 text-[#3A86FF]" />
-              <h2 class="text-lg font-semibold text-slate-900">知识检索</h2>
-            </div>
-            <div class="mt-4 flex gap-2">
-              <Input
-                v-model="retrieveQuery"
-                placeholder="例如：极限的定义和求法"
-                class="flex-1"
-              />
               <button
                 type="button"
-                class="rounded-lg bg-gradient-to-r from-[#3A86FF] to-[#6C5CE7] px-4 py-2 text-sm text-white transition-opacity hover:opacity-90 disabled:opacity-60"
-                :disabled="isSearching"
-                @click="retrieveKnowledge"
+                :class="[
+                  'inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition',
+                  activeContentTab === 'results'
+                    ? 'bg-white text-slate-950 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800'
+                ]"
+                @click="activeContentTab = 'results'"
               >
-                {{ isSearching ? '检索中...' : '检索' }}
+                <IconSearch class="h-4 w-4" />
+                检索结果
               </button>
             </div>
-            <div class="mt-4 space-y-3">
-              <div
-                v-for="hit in hits"
-                :key="hit.chunk_id"
-                class="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3"
+
+            <div class="flex flex-col gap-2 sm:flex-row">
+              <label class="relative">
+                <IconSearch class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  v-model="documentKeyword"
+                  type="search"
+                  placeholder="搜索当前知识库文档"
+                  class="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-700 outline-none transition focus:border-[#3A86FF] focus:ring-2 focus:ring-[#3A86FF]/15 sm:w-60"
+                  @keyup.enter="searchDocuments"
+                />
+              </label>
+              <button
+                type="button"
+                class="h-10 rounded-lg border border-slate-200 bg-white px-4 text-sm text-slate-700 transition hover:bg-slate-50"
+                @click="searchDocuments"
               >
-                <div class="flex items-center justify-between gap-3">
-                  <p class="truncate font-medium text-slate-900">{{ hit.document_title }}</p>
-                  <span class="text-xs font-semibold text-[#3A86FF]">{{ hit.score }}</span>
-                </div>
-                <p class="mt-2 text-xs text-slate-500">
-                  chunk #{{ hit.chunk_index }} · {{ hit.tags?.join(' / ') || '无标签' }}
-                </p>
-                <p class="mt-3 whitespace-pre-line text-sm leading-relaxed text-slate-700">
-                  {{ hit.content }}
-                </p>
-              </div>
-              <p v-if="!hits.length && !isSearching" class="text-sm text-slate-400">
-                检索结果会显示在这里。
-              </p>
+                搜文档
+              </button>
+              <button
+                type="button"
+                class="h-10 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 transition hover:border-[#3A86FF]/40 hover:text-[#3A86FF]"
+                @click="showCreateDocument = !showCreateDocument"
+              >
+                + 添加文档
+              </button>
             </div>
           </div>
 
-          <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div class="flex items-center justify-between">
-              <h2 class="text-lg font-semibold text-slate-900">切块预览</h2>
-              <span class="text-xs text-slate-400">
-                {{ isLoadingChunks ? '加载中...' : `${chunks.length} 段` }}
-              </span>
-            </div>
-            <div class="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-              <p class="font-medium text-slate-900">
-                {{ selectedDocument?.title || '尚未选择文档' }}
-              </p>
-              <p class="mt-2 text-xs text-slate-500">
-                {{ selectedDocument?.content_text?.slice(0, 120) || '点击左侧文档即可查看正文分块情况。' }}
-              </p>
-            </div>
-            <div class="mt-4 space-y-3">
-              <div
-                v-for="chunk in chunks"
-                :key="chunk.id"
-                class="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3"
-              >
-                <p class="text-xs font-semibold text-[#3A86FF]">Chunk {{ chunk.chunk_index }}</p>
-                <p class="mt-2 whitespace-pre-line text-sm leading-relaxed text-slate-700">
-                  {{ chunk.content }}
+          <section
+            v-if="showCreateDocument"
+            class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+          >
+            <div class="mb-4 flex items-center justify-between">
+              <div>
+                <h2 class="text-lg font-semibold text-slate-900">添加文档</h2>
+                <p class="mt-1 text-sm text-slate-500">
+                  {{ activeBase ? `添加到「${activeBase.name}」` : '请先选择一个知识库' }}
                 </p>
               </div>
-              <p v-if="!chunks.length && !isLoadingChunks" class="text-sm text-slate-400">
-                当前文档还没有切块内容。
+              <button
+                type="button"
+                class="text-sm text-slate-400 transition hover:text-slate-700"
+                @click="showCreateDocument = false"
+              >
+                收起
+              </button>
+            </div>
+            <div class="grid gap-4 lg:grid-cols-2">
+              <label class="space-y-2">
+                <span class="text-sm font-medium text-slate-700">文档标题</span>
+                <Input v-model="documentForm.title" placeholder="例如：函数极限讲义" />
+              </label>
+              <label class="space-y-2">
+                <span class="text-sm font-medium text-slate-700">标签</span>
+                <Input v-model="documentForm.tagsText" placeholder="例如：极限, 连续性, 例题" />
+              </label>
+              <label class="space-y-2 lg:col-span-2">
+                <span class="text-sm font-medium text-slate-700">网页地址（可选）</span>
+                <Input v-model="documentForm.sourceUrl" placeholder="https://example.com/article" />
+              </label>
+              <label class="space-y-2 lg:col-span-2">
+                <span class="text-sm font-medium text-slate-700">文档正文</span>
+                <textarea
+                  v-model="documentForm.contentText"
+                  class="min-h-[180px] w-full rounded-lg border border-slate-200 px-3 py-3 text-sm leading-6 text-slate-700 outline-none transition focus:border-[#3A86FF] focus:ring-2 focus:ring-[#3A86FF]/15"
+                  placeholder="粘贴课程讲义、知识点总结或例题解析；如果填写了网页地址，也可以留空让系统自动抓取正文。"
+                ></textarea>
+              </label>
+            </div>
+            <div class="mt-4 flex justify-end">
+              <button
+                type="button"
+                class="rounded-lg bg-gradient-to-r from-[#3A86FF] to-[#6C5CE7] px-5 py-2 text-sm text-white transition hover:opacity-90 disabled:opacity-60"
+                :disabled="isCreatingDocument"
+                @click="createDocument"
+              >
+                {{ isCreatingDocument ? '添加中...' : '添加文档' }}
+              </button>
+            </div>
+          </section>
+
+          <section
+            v-if="activeContentTab === 'documents'"
+            class="grid gap-4 xl:grid-cols-2"
+          >
+            <button
+              v-for="document in documents"
+              :key="document.id"
+              type="button"
+              :class="[
+                'group rounded-2xl border bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#3A86FF]/40 hover:shadow-md',
+                activeDocumentId === document.id ? 'border-[#3A86FF]/40 bg-[#3A86FF]/5' : 'border-slate-200'
+              ]"
+              @click="selectDocument(document.id)"
+            >
+              <div class="flex items-start gap-4">
+                <div class="min-w-0 flex-1">
+                  <p class="truncate text-lg font-semibold text-slate-950">{{ document.title }}</p>
+                  <p class="mt-2 line-clamp-2 text-sm leading-6 text-slate-500">
+                    {{ document.content_text || document.source_url || '该文档已录入知识库，可查看切块并用于检索。' }}
+                  </p>
+                </div>
+                <IconRight class="mt-1 h-5 w-5 shrink-0 text-slate-300 transition group-hover:text-[#3A86FF]" />
+              </div>
+              <div class="mt-4 flex items-center justify-between gap-4 text-sm text-slate-500">
+                <span>{{ document.source_type === 'web' ? '网页' : '手动录入' }}</span>
+                <span>{{ document.chunk_count || 0 }} 个切块</span>
+              </div>
+              <div class="mt-4 flex items-center justify-between gap-3">
+                <div class="flex min-w-0 flex-wrap gap-2">
+                  <span
+                    v-for="tag in document.tags || []"
+                    :key="tag"
+                    class="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600"
+                  >
+                    {{ tag }}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  class="shrink-0 text-xs text-rose-500 transition hover:text-rose-600"
+                  @click.stop="deleteDocument(document.id, document.title)"
+                >
+                  删除
+                </button>
+              </div>
+            </button>
+
+            <p
+              v-if="!documents.length && !isLoading"
+              class="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500 xl:col-span-2"
+            >
+              当前知识库还没有文档，点击“添加文档”录入第一篇资料。
+            </p>
+          </section>
+
+          <section v-if="activeContentTab === 'results'" class="space-y-4">
+            <div
+              v-for="hit in hits"
+              :key="hit.chunk_id"
+              class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+            >
+              <div class="flex items-center justify-between gap-3">
+                <p class="truncate text-lg font-semibold text-slate-950">{{ hit.document_title }}</p>
+                <span class="rounded-full bg-[#3A86FF]/10 px-2.5 py-1 text-xs font-semibold text-[#3A86FF]">
+                  {{ hit.score }}
+                </span>
+              </div>
+              <p class="mt-2 text-xs text-slate-400">
+                chunk #{{ hit.chunk_index }} · {{ hit.tags?.join(' / ') || '无标签' }}
+              </p>
+              <p class="mt-4 whitespace-pre-line text-sm leading-7 text-slate-700">
+                {{ hit.content }}
+              </p>
+              <button
+                type="button"
+                class="mt-4 text-sm font-medium text-[#3A86FF] hover:underline"
+                @click="openDocumentLocation(hit.document_id, hit.chunk_id)"
+              >
+                定位到来源
+              </button>
+            </div>
+
+            <p
+              v-if="!hits.length && !isSearching"
+              class="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500"
+            >
+              检索结果会显示在这里。
+            </p>
+          </section>
+
+          <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 class="text-lg font-semibold text-slate-950">
+                  {{ selectedDocument?.title || '知识库内容预览' }}
+                </h2>
+                <p class="mt-1 text-sm text-slate-500">
+                  {{ activeBase ? activeBase.name : '选择左侧知识库后查看内容' }}
+                </p>
+              </div>
+              <span class="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-500">
+                {{ isLoadingChunks ? '加载中...' : `${chunks.length} 个切块` }}
+              </span>
+            </div>
+
+            <div class="mt-4 grid gap-3">
+              <article
+                v-for="chunk in chunks"
+                :id="`kb-chunk-${chunk.id}`"
+                :key="chunk.id"
+                :class="[
+                  'rounded-xl border px-4 py-3 transition',
+                  activeChunkId === chunk.id
+                    ? 'border-[#3A86FF]/40 bg-[#3A86FF]/10'
+                    : 'border-slate-200 bg-slate-50'
+                ]"
+              >
+                <p class="text-xs font-semibold text-[#3A86FF]">Chunk {{ chunk.chunk_index }}</p>
+                <p class="mt-2 whitespace-pre-line text-sm leading-7 text-slate-700">
+                  {{ chunk.content }}
+                </p>
+              </article>
+
+              <p
+                v-if="!chunks.length && !isLoadingChunks"
+                class="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500"
+              >
+                选择一篇文档后，这里会展示切块内容。
               </p>
             </div>
-          </div>
-        </div>
+          </section>
+        </section>
       </section>
     </main>
   </div>

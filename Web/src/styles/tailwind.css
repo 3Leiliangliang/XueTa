@@ -90,3 +90,110 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer base {
+  html {
+    background: hsl(var(--background));
+  }
+
+  html,
+  body,
+  #app {
+    min-height: 100%;
+  }
+
+  html.dark body {
+    background:
+      radial-gradient(circle at top left, rgba(58, 134, 255, 0.12), transparent 28rem),
+      radial-gradient(circle at bottom right, rgba(16, 185, 129, 0.1), transparent 30rem),
+      #07111f;
+    color: #e5edf8;
+  }
+}
+
+@layer utilities {
+  .dark .bg-white,
+  .dark .bg-white\/78,
+  .dark .bg-slate-50,
+  .dark .bg-slate-50\/80 {
+    background-color: rgba(15, 23, 42, 0.92) !important;
+  }
+
+  .dark .bg-slate-100,
+  .dark .bg-slate-100\/80 {
+    background-color: rgba(30, 41, 59, 0.88) !important;
+  }
+
+  .dark .bg-slate-200 {
+    background-color: rgb(51 65 85) !important;
+  }
+
+  .dark .bg-blue-50 {
+    background-color: rgba(29, 78, 216, 0.22) !important;
+  }
+
+  .dark .bg-emerald-50 {
+    background-color: rgba(6, 95, 70, 0.22) !important;
+  }
+
+  .dark .bg-amber-50 {
+    background-color: rgba(146, 64, 14, 0.22) !important;
+  }
+
+  .dark .bg-red-50 {
+    background-color: rgba(153, 27, 27, 0.22) !important;
+  }
+
+  .dark .bg-gradient-to-b.from-slate-50.to-slate-100 {
+    background-image:
+      radial-gradient(circle at top left, rgba(58, 134, 255, 0.14), transparent 24rem),
+      linear-gradient(to bottom, #08111f, #0f172a) !important;
+  }
+
+  .dark .border-slate-100,
+  .dark .border-slate-200,
+  .dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+    border-color: rgba(100, 116, 139, 0.42) !important;
+  }
+
+  .dark .text-slate-900,
+  .dark .text-slate-800,
+  .dark .text-slate-700 {
+    color: #e5edf8 !important;
+  }
+
+  .dark .text-slate-600,
+  .dark .text-slate-500 {
+    color: #a9b6c8 !important;
+  }
+
+  .dark .text-emerald-700 {
+    color: #6ee7b7 !important;
+  }
+
+  .dark .text-amber-700 {
+    color: #fcd34d !important;
+  }
+
+  .dark .text-red-600 {
+    color: #fca5a5 !important;
+  }
+
+  .dark .shadow-sm,
+  .dark .shadow-md {
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.28) !important;
+  }
+
+  .dark input,
+  .dark select,
+  .dark textarea {
+    background-color: rgba(15, 23, 42, 0.9) !important;
+    border-color: rgba(100, 116, 139, 0.5) !important;
+    color: #e5edf8 !important;
+  }
+
+  .dark input::placeholder,
+  .dark textarea::placeholder {
+    color: #94a3b8 !important;
+  }
+}

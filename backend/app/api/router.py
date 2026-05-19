@@ -1,5 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.api.deps import apply_request_llm_config
 from app.api.v1 import (
     auth,
     chat,
@@ -17,7 +18,7 @@ from app.api.v1 import (
 )
 
 
-api_router = APIRouter()
+api_router = APIRouter(dependencies=[Depends(apply_request_llm_config)])
 api_router.include_router(health.router, tags=['health'])
 api_router.include_router(auth.router, prefix='/auth', tags=['auth'])
 api_router.include_router(users.router, prefix='/users', tags=['users'])

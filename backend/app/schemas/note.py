@@ -7,13 +7,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class NotebookCreateRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=255)
+    name: str | None = Field(default=None, max_length=255)
     description: str | None = None
     color: str | None = Field(default=None, max_length=128)
 
 
 class NotebookUpdateRequest(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=255)
+    name: str | None = Field(default=None, max_length=255)
     description: str | None = None
     color: str | None = Field(default=None, max_length=128)
 
@@ -32,15 +32,15 @@ class NotebookResponse(BaseModel):
 
 class NoteCreateRequest(BaseModel):
     notebook_id: UUID | None = None
-    title: str = Field(min_length=1, max_length=255)
-    content_markdown: str = Field(min_length=1)
+    title: str | None = Field(default=None, max_length=255)
+    content_markdown: str = ""
     source_type: str = Field(default="manual", max_length=32)
     metadata_json: dict | None = None
 
 
 class NoteUpdateRequest(BaseModel):
     notebook_id: UUID | None = None
-    title: str | None = Field(default=None, min_length=1, max_length=255)
+    title: str | None = Field(default=None, max_length=255)
     content_markdown: str | None = None
     summary: str | None = None
     source_type: str | None = Field(default=None, max_length=32)

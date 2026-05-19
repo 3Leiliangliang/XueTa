@@ -1,4 +1,43 @@
+from types import SimpleNamespace
+
 from app.services.llm import service as llm_service
+
+
+def test_request_llm_config_overrides_default_chat_model(monkeypatch) -> None:
+    calls = []
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content='自定义模型回复'))],
+                model='custom-chat-returned',
+            )
+
+    fake_client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+    monkeypatch.setattr(llm_service, '_build_openai_client', lambda config: fake_client)
+
+    token = llm_service.set_request_llm_config(
+        llm_service.LlmRequestConfig(
+            api_key='user-key',
+            base_url='https://models.example.com/v1',
+            chat_model='custom-chat',
+            embedding_model='custom-embedding',
+            vision_model='custom-vision',
+            temperature=0.7,
+            max_tokens=2048,
+            provider='custom-provider',
+        )
+    )
+    try:
+        result = llm_service._create_completion(messages=[{'role': 'user', 'content': '你好'}])
+    finally:
+        llm_service.reset_request_llm_config(token)
+
+    assert result == ('自定义模型回复', 'custom-chat-returned')
+    assert calls[0]['model'] == 'custom-chat'
+    assert calls[0]['temperature'] == 0.7
+    assert calls[0]['max_tokens'] == 2048
 
 
 def test_generate_chat_reply_returns_none_when_completion_unavailable(monkeypatch) -> None:

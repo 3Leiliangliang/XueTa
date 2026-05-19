@@ -8,7 +8,6 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.models.chat import ChatFeedback, ChatMessage, ChatSession, ChatSessionStatus, MessageRole
 from app.models.user import User
 from app.schemas.chat import (
@@ -18,7 +17,7 @@ from app.schemas.chat import (
     ChatSessionUpdateRequest,
 )
 from app.schemas.kb import KnowledgeRetrieveRequest
-from app.services.llm.service import generate_chat_reply
+from app.services.llm.service import generate_chat_reply, has_configured_llm
 from app.services.rag.service import retrieve_knowledge
 
 STREAM_CHUNK_SIZE = 48
@@ -243,10 +242,10 @@ def create_message_exchange(
     )
     llm_result = generate_chat_reply(cleaned_content, session.subject, retrieved_hits)
     if llm_result is None:
-        if settings.openai_api_key:
+        if has_configured_llm():
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="AI 模型调用失败，请检查 OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL 配置。",
+                detail="AI 模型调用失败，请检查自定义模型 API 或服务端 OPENAI 配置。",
             )
         assistant_content = _build_rule_based_reply(cleaned_content, session.subject, citations_payload)
         model_name = "rule-based-draft"

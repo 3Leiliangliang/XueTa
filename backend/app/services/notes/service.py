@@ -18,6 +18,18 @@ from app.schemas.note import (
 )
 from app.services.llm.service import generate_note_summary
 
+DEFAULT_NOTEBOOK_NAME = "默认笔记本"
+DEFAULT_NOTE_TITLE = "未命名笔记"
+
+
+def _clean_text(value: str | None) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _clean_optional_text(value: str | None) -> str | None:
+    cleaned = _clean_text(value)
+    return cleaned or None
+
 
 def _update_notebook_note_count(db: Session, notebook_id: UUID | None) -> None:
     if notebook_id is None:
@@ -49,8 +61,41 @@ def get_notebook_or_404(db: Session, user: User, notebook_id: UUID) -> Notebook:
     return notebook
 
 
+def _next_notebook_name(db: Session, user: User) -> str:
+    notebook_count = int(
+        db.scalar(select(func.count(Notebook.id)).where(Notebook.user_id == user.id)) or 0
+    )
+    return f"新建笔记本 {notebook_count + 1}"
+
+
+def _get_or_create_default_notebook(db: Session, user: User) -> Notebook:
+    notebook = db.scalar(
+        select(Notebook)
+        .where(Notebook.user_id == user.id, Notebook.name == DEFAULT_NOTEBOOK_NAME)
+        .order_by(Notebook.created_at.asc())
+    )
+    if notebook is not None:
+        return notebook
+
+    notebook = Notebook(
+        user_id=user.id,
+        name=DEFAULT_NOTEBOOK_NAME,
+        description="自动创建的默认笔记本",
+        color=None,
+        note_count=0,
+    )
+    db.add(notebook)
+    db.flush()
+    return notebook
+
+
 def create_notebook(db: Session, user: User, payload: NotebookCreateRequest) -> Notebook:
-    notebook = Notebook(user_id=user.id, note_count=0, **payload.model_dump())
+    data = payload.model_dump()
+    data["name"] = _clean_text(data.get("name")) or _next_notebook_name(db, user)
+    data["description"] = _clean_optional_text(data.get("description"))
+    data["color"] = _clean_optional_text(data.get("color"))
+
+    notebook = Notebook(user_id=user.id, note_count=0, **data)
     db.add(notebook)
     db.commit()
     db.refresh(notebook)
@@ -59,6 +104,10 @@ def create_notebook(db: Session, user: User, payload: NotebookCreateRequest) -> 
 
 def update_notebook(db: Session, notebook: Notebook, payload: NotebookUpdateRequest) -> Notebook:
     for field, value in payload.model_dump(exclude_unset=True).items():
+        if field == "name":
+            value = _clean_text(value) or notebook.name
+        elif field in {"description", "color"}:
+            value = _clean_optional_text(value)
         setattr(notebook, field, value)
     db.add(notebook)
     db.commit()
@@ -97,13 +146,22 @@ def get_note_or_404(db: Session, user: User, note_id: UUID) -> Note:
 
 
 def create_note(db: Session, user: User, payload: NoteCreateRequest) -> Note:
-    if payload.notebook_id is not None:
-        get_notebook_or_404(db, user, payload.notebook_id)
+    notebook_id = payload.notebook_id
+    if notebook_id is not None:
+        get_notebook_or_404(db, user, notebook_id)
+    else:
+        notebook_id = _get_or_create_default_notebook(db, user).id
 
-    note = Note(user_id=user.id, summary=None, **payload.model_dump())
+    data = payload.model_dump()
+    data["notebook_id"] = notebook_id
+    data["title"] = _clean_text(data.get("title")) or DEFAULT_NOTE_TITLE
+    data["content_markdown"] = data.get("content_markdown") or ""
+    data["source_type"] = _clean_text(data.get("source_type")) or "manual"
+
+    note = Note(user_id=user.id, summary=None, **data)
     db.add(note)
     db.flush()
-    _update_notebook_note_count(db, payload.notebook_id)
+    _update_notebook_note_count(db, notebook_id)
     db.commit()
     db.refresh(note)
     return note
@@ -117,6 +175,10 @@ def update_note(db: Session, user: User, note: Note, payload: NoteUpdateRequest)
         get_notebook_or_404(db, user, next_notebook_id)
 
     for field, value in updates.items():
+        if field == "title":
+            value = _clean_text(value) or DEFAULT_NOTE_TITLE
+        elif field == "source_type":
+            value = _clean_text(value) or "manual"
         setattr(note, field, value)
     db.add(note)
     db.flush()

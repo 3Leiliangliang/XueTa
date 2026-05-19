@@ -28,7 +28,7 @@ const contact = {
 
 <template>
   <footer class="bg-slate-900 px-6 py-12 text-slate-300 md:px-12">
-    <div class="container">
+    <div class="mx-auto w-full max-w-7xl">
       <div class="grid grid-cols-1 gap-8 md:grid-cols-4">
         <div>
           <Logo colorSVG="text-[#ffffff]" colorText="bg-gradient-to-r " class="mb-4" />

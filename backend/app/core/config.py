@@ -22,7 +22,10 @@ class Settings(BaseSettings):
         default="postgresql+psycopg://postgres:postgres@localhost:5432/xueta"
     )
     redis_url: str = "redis://localhost:6379/0"
-    cors_origins: list[str] = ["http://localhost:5173"]
+    cors_origins: list[str] = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
 
     run_migrations_on_startup: bool = False
     auto_create_tables: bool = True

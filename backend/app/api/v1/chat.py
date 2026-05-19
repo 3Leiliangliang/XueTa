@@ -9,7 +9,6 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
-from app.core.config import settings
 from app.models.user import User
 from app.schemas.chat import (
     ChatExchangeResponse,
@@ -38,7 +37,7 @@ from app.services.chat_service import (
     _build_rule_based_reply,
     prepare_chat_message_context,
 )
-from app.services.llm.service import generate_chat_reply, open_chat_reply_stream
+from app.services.llm.service import generate_chat_reply, has_configured_llm, open_chat_reply_stream
 
 
 router = APIRouter()
@@ -141,10 +140,10 @@ def create_session_message_stream(
     sync_model_reply = None
     if stream_bundle is None:
         sync_model_reply = generate_chat_reply(cleaned_content, session.subject, retrieved_hits)
-        if sync_model_reply is None and settings.openai_api_key:
+        if sync_model_reply is None and has_configured_llm():
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="AI 模型调用失败，请检查 OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL 配置。",
+                detail="AI 模型调用失败，请检查自定义模型 API 或服务端 OPENAI 配置。",
             )
 
     cleaned_content, retrieved_hits, citations_payload, user_message, assistant_message = create_streaming_exchange_shell(
@@ -211,8 +210,8 @@ def create_session_message_stream(
                 retry_reply = generate_chat_reply(cleaned_content, session.subject, retrieved_hits)
                 if retry_reply is not None:
                     fallback_content, model_name = retry_reply
-                elif settings.openai_api_key:
-                    fallback_content = "AI 模型调用失败，请检查 OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL 配置。"
+                elif has_configured_llm():
+                    fallback_content = "AI 模型调用失败，请检查自定义模型 API 或服务端 OPENAI 配置。"
                     model_name = 'llm-unavailable'
                 else:
                     fallback_content = _build_rule_based_reply(cleaned_content, session.subject, citations_payload)

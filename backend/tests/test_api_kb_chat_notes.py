@@ -100,6 +100,53 @@ def test_note_summarize_endpoint_falls_back_to_rule_based(client) -> None:
     assert len(summary["suggestions_json"]["suggestions"]) == 3
 
 
+def test_notes_can_create_blank_notebook_and_blank_note(client) -> None:
+    notebook_response = client.post(
+        "/api/v1/notes/notebooks",
+        json={"name": "", "description": "   ", "color": "#10B981"},
+    )
+    assert notebook_response.status_code == 201
+    notebook = notebook_response.json()
+    assert notebook["name"] == "新建笔记本 1"
+    assert notebook["description"] is None
+    assert notebook["color"] == "#10B981"
+    assert notebook["note_count"] == 0
+
+    note_response = client.post(
+        "/api/v1/notes",
+        json={
+            "notebook_id": notebook["id"],
+            "title": "",
+            "content_markdown": "",
+        },
+    )
+    assert note_response.status_code == 201
+    note = note_response.json()
+    assert note["title"] == "未命名笔记"
+    assert note["content_markdown"] == ""
+    assert note["notebook_id"] == notebook["id"]
+
+    notebooks_response = client.get("/api/v1/notes/notebooks")
+    assert notebooks_response.status_code == 200
+    assert notebooks_response.json()[0]["note_count"] == 1
+
+
+def test_note_create_without_notebook_uses_default_notebook(client) -> None:
+    note_response = client.post("/api/v1/notes", json={})
+    assert note_response.status_code == 201
+    note = note_response.json()
+    assert note["title"] == "未命名笔记"
+    assert note["content_markdown"] == ""
+    assert note["notebook_id"] is not None
+
+    notebooks_response = client.get("/api/v1/notes/notebooks")
+    assert notebooks_response.status_code == 200
+    notebooks = notebooks_response.json()
+    assert len(notebooks) == 1
+    assert notebooks[0]["name"] == "默认笔记本"
+    assert notebooks[0]["note_count"] == 1
+
+
 from app.services.rag import service as rag_service
 
 
@@ -198,6 +245,40 @@ def test_kb_document_creates_embeddings_and_supports_vector_retrieve(client, ses
     payload = retrieve_response.json()
     assert payload["total_hits"] >= 1
     assert payload["hits"][0]["document_title"] == "Doc B"
+
+
+def test_kb_document_pads_short_embedding_vectors(client, session_factory, monkeypatch) -> None:
+    from app.models.knowledge import KnowledgeChunkEmbedding
+    from app.services.rag import service as rag_service
+
+    monkeypatch.setattr(
+        rag_service,
+        'generate_embeddings',
+        lambda texts: ([[0.25] * 1024 for _ in texts], 'short-embedding-model'),
+    )
+
+    base_response = client.post(
+        "/api/v1/kb/bases",
+        json={"name": "short-vector-base", "subject": "math"},
+    )
+    assert base_response.status_code == 201
+    base_id = base_response.json()["id"]
+
+    document_response = client.post(
+        "/api/v1/kb/documents",
+        json={
+            "knowledge_base_id": base_id,
+            "title": "Short Vector Doc",
+            "source_type": "manual",
+            "content_text": "content that receives a 1024 dimension embedding",
+        },
+    )
+    assert document_response.status_code == 201
+
+    with session_factory() as db:
+        embedding = db.query(KnowledgeChunkEmbedding).one()
+        assert embedding.dimensions == 1536
+        assert embedding.chunk.metadata_json["original_embedding_dimensions"] == 1024
 
 
 

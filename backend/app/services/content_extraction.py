@@ -14,6 +14,7 @@ import httpx
 from PIL import Image
 
 from app.core.config import settings
+from app.services.llm import get_effective_llm_config
 
 
 TEXT_FILE_EXTENSIONS = {'.txt', '.md', '.markdown', '.csv', '.json', '.py', '.js', '.ts', '.html', '.htm'}
@@ -349,7 +350,8 @@ def _extract_text_from_image_with_tesseract(image: Image.Image) -> str | None:
 
 
 def _extract_text_from_image_with_openai(data: bytes, mime_type: str) -> str | None:
-    if not settings.openai_api_key:
+    llm_config = get_effective_llm_config()
+    if not llm_config.api_key:
         return None
 
     try:
@@ -360,14 +362,14 @@ def _extract_text_from_image_with_openai(data: bytes, mime_type: str) -> str | N
     encoded_image = base64.b64encode(data).decode('ascii')
     try:
         client_kwargs = {
-            'api_key': settings.openai_api_key,
-            'timeout': max(settings.openai_timeout_seconds, 30.0),
+            'api_key': llm_config.api_key,
+            'timeout': max(llm_config.timeout_seconds, 30.0),
         }
-        if settings.openai_base_url:
-            client_kwargs['base_url'] = settings.openai_base_url
+        if llm_config.base_url:
+            client_kwargs['base_url'] = llm_config.base_url
         client = OpenAI(**client_kwargs)
         response = client.chat.completions.create(
-            model=settings.openai_model,
+            model=llm_config.vision_model or llm_config.chat_model,
             temperature=0,
             max_tokens=1600,
             messages=[
