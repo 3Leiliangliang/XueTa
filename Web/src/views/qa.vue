@@ -77,6 +77,15 @@ const currentSession = computed(
 const currentSessionTitle = computed(() => displaySessionTitle(currentSession.value))
 const hasMessages = computed(() => visibleMessages.value.length > 0)
 const isSidebarVisibleDesktop = computed(() => !isDesktopSidebarCollapsed.value)
+const canSendQuestion = computed(() => composer.value.trim().length > 0)
+const sendButtonClass = computed(() => [
+  'btn-pop send-button',
+  isAsking.value
+    ? 'send-button--running'
+    : canSendQuestion.value
+      ? 'send-button--ready'
+      : 'send-button--idle'
+])
 
 const buildSessionGroups = (allSessions) => {
   const groups = [
@@ -1355,11 +1364,15 @@ watch(isDesktopSidebarCollapsed, (value) => {
                   </div>
                   <button
                     type="button"
-                    class="btn-pop h-9 w-9 rounded-full bg-[#9fb7ff] text-lg text-white transition-colors hover:bg-[#88a7ff] disabled:opacity-60"
-                    :disabled="isAsking || !composer.trim()"
+                    :class="sendButtonClass"
+                    :disabled="isAsking || !canSendQuestion"
+                    :aria-label="isAsking ? '正在运行' : '发送消息'"
+                    :aria-busy="isAsking ? 'true' : 'false'"
+                    :title="isAsking ? '正在运行' : '发送消息'"
                     @click="askQuestion"
                   >
-                    ↑
+                    <span v-if="isAsking" class="send-button__spinner" aria-hidden="true" />
+                    <span v-else aria-hidden="true">↑</span>
                   </button>
                 </div>
               </div>
@@ -1390,13 +1403,19 @@ watch(isDesktopSidebarCollapsed, (value) => {
                 </p>
 
                 <div v-else>
-                  <div v-if="message.pending" class="flex items-center gap-2 text-sm text-slate-500">
+                  <div
+                    v-if="message.pending && !message.content.trim()"
+                    class="flex items-center gap-2 text-sm text-slate-500"
+                  >
                     <span class="inline-block h-2 w-2 animate-pulse rounded-full bg-[#3A86FF]" />
                     <span>正在思考...</span>
                   </div>
                   <div
                     v-else
-                    class="markdown-body text-sm text-slate-700"
+                    :class="[
+                      'markdown-body text-sm text-slate-700',
+                      message.pending ? 'markdown-body--streaming' : ''
+                    ]"
                     v-html="renderAssistantMessage(message)"
                     @click="handleMarkdownClick"
                   />
@@ -1466,11 +1485,15 @@ watch(isDesktopSidebarCollapsed, (value) => {
               </div>
               <button
                 type="button"
-                class="btn-pop h-9 w-9 rounded-full bg-[#9fb7ff] text-lg text-white transition-colors hover:bg-[#88a7ff] disabled:opacity-60"
-                :disabled="isAsking || !composer.trim()"
+                :class="sendButtonClass"
+                :disabled="isAsking || !canSendQuestion"
+                :aria-label="isAsking ? '正在运行' : '发送消息'"
+                :aria-busy="isAsking ? 'true' : 'false'"
+                :title="isAsking ? '正在运行' : '发送消息'"
                 @click="askQuestion"
               >
-                ↑
+                <span v-if="isAsking" class="send-button__spinner" aria-hidden="true" />
+                <span v-else aria-hidden="true">↑</span>
               </button>
             </div>
           </div>
@@ -1499,6 +1522,57 @@ watch(isDesktopSidebarCollapsed, (value) => {
 
 .btn-pop:active {
   transform: scale(0.96);
+}
+
+.send-button {
+  display: inline-flex;
+  height: 2.25rem;
+  width: 2.25rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.send-button--ready,
+.send-button--running {
+  background: linear-gradient(135deg, #3a86ff 0%, #6c5ce7 100%);
+  box-shadow: 0 10px 22px rgb(58 134 255 / 0.32);
+}
+
+.send-button--ready:hover {
+  box-shadow: 0 12px 26px rgb(58 134 255 / 0.4);
+  transform: translateY(-1px);
+}
+
+.send-button--running {
+  cursor: progress;
+}
+
+.send-button--idle {
+  cursor: not-allowed;
+  background: #dbe4f0;
+  box-shadow: none;
+  color: #94a3b8;
+}
+
+.send-button:focus-visible {
+  outline: 2px solid rgb(58 134 255 / 0.38);
+  outline-offset: 2px;
+}
+
+.send-button__spinner {
+  height: 1rem;
+  width: 1rem;
+  border-radius: 9999px;
+  border: 2px solid rgb(255 255 255 / 0.42);
+  border-top-color: #fff;
+  animation: send-spin 0.72s linear infinite;
 }
 
 .nav-icon-btn,
@@ -1600,9 +1674,37 @@ watch(isDesktopSidebarCollapsed, (value) => {
   }
 }
 
+@keyframes send-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes stream-caret {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 .markdown-body {
   line-height: 1.8;
   color: #334155;
+}
+
+.markdown-body--streaming :deep(:last-child)::after {
+  content: '';
+  display: inline-block;
+  height: 1em;
+  width: 0.5em;
+  margin-left: 0.2rem;
+  border-radius: 9999px;
+  background: #3a86ff;
+  vertical-align: -0.14em;
+  animation: stream-caret 0.9s ease-in-out infinite;
 }
 
 .markdown-body :deep(h1),
